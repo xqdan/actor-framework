@@ -209,7 +209,7 @@ private:
 
 #ifndef CAF_LOG_LEVEL
 
-#define CAF_LOG_IMPL(unused1, unused2)
+#define CAF_LOG_IMPL(unused1, unused2) static_cast<void>(0)
 
 // placeholder macros when compiling without logging
 inline caf::actor_id caf_set_aid_dummy() { return 0; }

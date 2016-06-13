@@ -39,6 +39,7 @@
 #include "caf/abstract_actor.hpp"
 #include "caf/actor_registry.hpp"
 #include "caf/string_algorithms.hpp"
+#include "caf/named_actor_config.hpp"
 #include "caf/scoped_execution_unit.hpp"
 #include "caf/uniform_type_info_map.hpp"
 #include "caf/composable_behavior_based_actor.hpp"
@@ -161,6 +162,9 @@ public:
   using module_ptr = std::unique_ptr<module>;
 
   using module_array = std::array<module_ptr, module::num_ids>;
+
+  using named_actor_config_map = std::unordered_map<std::string,
+                                                    named_actor_config>;
 
   /// @warning The system stores a reference to `cfg`, which means the
   ///          config object must outlive the actor system.
@@ -453,6 +457,11 @@ public:
     return cfg_;
   }
 
+    /// Returns configuration parameters for individual named actors types.
+  inline const named_actor_config_map& named_actor_configs() const {
+    return named_actor_configs_;
+  }
+
   /// @cond PRIVATE
 
   /// Increases running-detached-threads-count by one.
@@ -519,6 +528,7 @@ private:
   mutable std::mutex detached_mtx;
   mutable std::condition_variable detached_cv;
   actor_system_config& cfg_;
+  named_actor_config_map named_actor_configs_;
 };
 
 } // namespace caf

@@ -338,6 +338,10 @@ public:
   /// @returns `true` if cleanup code was called, `false` otherwise.
   bool finalize();
 
+  inline detail::behavior_stack& bhvr_stack() {
+    return bhvr_stack_;
+  }
+
   /// @endcond
 
 protected:

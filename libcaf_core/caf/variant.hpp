@@ -155,6 +155,15 @@ public:
     return type_ == Pos;
   }
 
+  template <class T>
+  bool is() const {
+    using namespace detail;
+    int_token<tl_index_where<type_list<Ts...>,
+                             tbind<is_same_ish, T>::template type>::value>
+      token;
+    return is(token);
+  }
+
   template <int Pos>
   const typename detail::tl_at<types, Pos>::type&
   get(std::integral_constant<int, Pos> token) const {
