@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -47,7 +47,7 @@ public:
   message_data() = default;
   message_data(const message_data&) = default;
 
-  ~message_data();
+  ~message_data() override;
 
   // -- pure virtual observers -------------------------------------------------
 
@@ -119,7 +119,7 @@ public:
   }
 
   inline const message_data& operator*() const noexcept {
-    return *ptr_.get();
+    return *ptr_;
   }
 
   inline explicit operator bool() const noexcept {

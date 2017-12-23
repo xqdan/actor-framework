@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -27,6 +27,7 @@
 #include "caf/send.hpp"
 #include "caf/skip.hpp"
 #include "caf/unit.hpp"
+#include "caf/term.hpp"
 #include "caf/actor.hpp"
 #include "caf/after.hpp"
 #include "caf/error.hpp"
@@ -35,6 +36,7 @@
 #include "caf/logger.hpp"
 #include "caf/others.hpp"
 #include "caf/result.hpp"
+#include "caf/stream.hpp"
 #include "caf/message.hpp"
 #include "caf/node_id.hpp"
 #include "caf/behavior.hpp"
@@ -54,6 +56,7 @@
 #include "caf/exit_reason.hpp"
 #include "caf/local_actor.hpp"
 #include "caf/ref_counted.hpp"
+#include "caf/thread_hook.hpp"
 #include "caf/typed_actor.hpp"
 #include "caf/actor_system.hpp"
 #include "caf/deserializer.hpp"
@@ -72,11 +75,11 @@
 #include "caf/typed_behavior.hpp"
 #include "caf/proxy_registry.hpp"
 #include "caf/behavior_policy.hpp"
-#include "caf/continue_helper.hpp"
-#include "caf/mailbox_element.hpp"
 #include "caf/message_builder.hpp"
 #include "caf/message_handler.hpp"
 #include "caf/response_handle.hpp"
+#include "caf/fused_scatterer.hpp"
+#include "caf/random_gatherer.hpp"
 #include "caf/system_messages.hpp"
 #include "caf/abstract_channel.hpp"
 #include "caf/may_have_timeout.hpp"
@@ -87,13 +90,15 @@
 #include "caf/event_based_actor.hpp"
 #include "caf/primitive_variant.hpp"
 #include "caf/timeout_definition.hpp"
+#include "caf/broadcast_scatterer.hpp"
 #include "caf/actor_system_config.hpp"
 #include "caf/binary_deserializer.hpp"
 #include "caf/composable_behavior.hpp"
 #include "caf/typed_actor_pointer.hpp"
 #include "caf/scoped_execution_unit.hpp"
-#include "caf/typed_continue_helper.hpp"
 #include "caf/typed_response_promise.hpp"
+#include "caf/random_topic_scatterer.hpp"
+#include "caf/broadcast_topic_scatterer.hpp"
 #include "caf/typed_event_based_actor.hpp"
 #include "caf/abstract_composable_behavior.hpp"
 
@@ -105,6 +110,7 @@
 #include "caf/meta/load_callback.hpp"
 #include "caf/meta/omittable_if_empty.hpp"
 
+#include "caf/scheduler/test_coordinator.hpp"
 #include "caf/scheduler/abstract_coordinator.hpp"
 
 /// @author Dominik Charousset <dominik.charousset (at) haw-hamburg.de>

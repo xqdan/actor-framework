@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -21,24 +21,50 @@
 #define CAF_IO_NETWORK_PROTOCOL_HPP
 
 #include <cstddef>
+#include <string>
+
+#include "caf/meta/type_name.hpp"
 
 namespace caf {
 namespace io {
 namespace network {
 
-/// Denotes a network protocol, e.g., Ethernet or IP4/6.
-enum class protocol : uint32_t {
-  ethernet,
-  ipv4,
-  ipv6
+/// Bundles protocol information for network and transport layer communication.
+struct protocol {
+  /// Denotes a network protocol, i.e., IPv4 or IPv6.
+  enum network {
+    ipv4,
+    ipv6
+  };
+  /// Denotes a transport protocol, i.e., TCP or UDP.
+  enum transport {
+    tcp,
+    udp
+  };
+  transport trans;
+  network net;
 };
 
-/// @relates protocol
-inline std::string to_string(protocol value) {
-  return value == protocol::ethernet ? "ethernet"
-                                     : (value == protocol::ipv4 ? "ipv4"
-                                                                : "ipv6");
+/// @relates protocol::transport
+inline std::string to_string(protocol::transport x) {
+  return x == protocol::tcp ? "TCP" : "UDP";
 }
+
+/// @relates protocol::network
+inline std::string to_string(protocol::network x) {
+  return x == protocol::ipv4 ? "IPv4" : "IPv6";
+}
+
+/// @relates protocol
+template <class Inspector>
+typename Inspector::result_type inspect(Inspector& f, protocol& x) {
+  return f(meta::type_name("protocol"), x.trans, x.net);
+}
+
+/// Converts a protocol into a transport/network string representation, e.g.,
+/// "TCP/IPv4".
+/// @relates protocol
+std::string to_string(const protocol& x);
 
 } // namespace network
 } // namespace io

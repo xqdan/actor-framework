@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -20,14 +20,17 @@
 #ifndef CAF_ACTOR_CONFIG_HPP
 #define CAF_ACTOR_CONFIG_HPP
 
+#include <string>
 #include <functional>
 
 #include "caf/fwd.hpp"
+#include "caf/behavior.hpp"
 #include "caf/input_range.hpp"
 #include "caf/abstract_channel.hpp"
 
 namespace caf {
 
+/// Stores spawn-time flags and groups.
 class actor_config {
 public:
   execution_unit* host;
@@ -35,18 +38,16 @@ public:
   input_range<const group>* groups;
   std::function<behavior (local_actor*)> init_fun;
 
-  explicit actor_config(execution_unit* ptr = nullptr)
-      : host(ptr),
-        flags(abstract_channel::is_abstract_actor_flag),
-        groups(nullptr) {
-    // nop
-  }
+  explicit actor_config(execution_unit* ptr = nullptr);
 
   inline actor_config& add_flag(int x) {
     flags |= x;
     return *this;
   }
 };
+
+/// @relates actor_config
+std::string to_string(const actor_config& x);
 
 } // namespace caf
 

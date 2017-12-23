@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -38,7 +38,7 @@ public:
     static constexpr size_t token_type = attachable::token::observer;
   };
 
-  void actor_exited(const error& fail_state, execution_unit* host) override;
+  void actor_exited(const error& rsn, execution_unit* host) override;
 
   bool matches(const token& what) override;
 
@@ -72,7 +72,7 @@ public:
   };
 
 private:
-  default_attachable(actor_addr observed, actor_addr observer, observe_type ot);
+  default_attachable(actor_addr observed, actor_addr observer, observe_type type);
   actor_addr observed_;
   actor_addr observer_;
   observe_type type_;

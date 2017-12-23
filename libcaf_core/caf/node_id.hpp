@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -69,14 +69,14 @@ public:
   using host_id_type = std::array<uint8_t, host_id_size>;
 
   /// Creates a node ID from `process_id` and `hash`.
-  /// @param process_id System-wide unique process identifier.
+  /// @param procid System-wide unique process identifier.
   /// @param hash Unique node id as hexadecimal string representation.
-  node_id(uint32_t process_id, const std::string& hash);
+  node_id(uint32_t procid, const std::string& hash);
 
   /// Creates a node ID from `process_id` and `hash`.
-  /// @param process_id System-wide unique process identifier.
-  /// @param node_id Unique node id.
-  node_id(uint32_t process_id, const host_id_type& node_id);
+  /// @param procid System-wide unique process identifier.
+  /// @param hid Unique node id.
+  node_id(uint32_t procid, const host_id_type& hid);
 
   /// Identifies the running process.
   /// @returns A system-wide unique process identifier.
@@ -101,7 +101,7 @@ public:
 
     int compare(const node_id& other) const;
 
-    ~data();
+    ~data() override;
 
     data();
 

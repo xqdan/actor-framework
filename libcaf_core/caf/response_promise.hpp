@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -41,8 +41,9 @@ public:
   /// Constructs an invalid response promise.
   response_promise();
 
-  response_promise(execution_unit* ctx, strong_actor_ptr self,
-                   mailbox_element& src);
+  response_promise(none_t);
+
+  response_promise(strong_actor_ptr self, mailbox_element& src);
 
   response_promise(response_promise&&) = default;
   response_promise(const response_promise&) = default;
@@ -56,6 +57,11 @@ public:
     response_promise
   >::type
   deliver(T&&x, Ts&&... xs) {
+    static_assert(!detail::is_specialization<result, T>::value
+                  && !detail::disjunction<
+                       detail::is_specialization<result, Ts>::value...
+                     >::value,
+                  "it is not possible to deliver objects of type result<...>");
     return deliver_impl(make_message(std::forward<T>(x),
                                      std::forward<Ts>(xs)...));
   }
@@ -81,7 +87,7 @@ public:
       dest->enqueue(make_mailbox_element(std::move(source_), mid,
                                          std::move(stages_),
                                          std::forward<Ts>(xs)...),
-                    ctx_);
+                    context());
     }
     return {};
   }
@@ -114,9 +120,10 @@ public:
   }
 
 private:
-  response_promise deliver_impl(message response_message);
+  execution_unit* context();
 
-  execution_unit* ctx_;
+  response_promise deliver_impl(message msg);
+
   strong_actor_ptr self_;
   strong_actor_ptr source_;
   forwarding_stack stages_;

@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -51,6 +51,9 @@ public:
     /// Identifies `default_attachable::observe_token`.
     static constexpr size_t observer = 2;
 
+    /// Identifies `stream_aborter::token`.
+    static constexpr size_t stream_aborter = 3;
+
     template <class T>
     token(const T& tk) : subtype(T::token_type), ptr(&tk) {
       // nop
@@ -62,7 +65,7 @@ public:
     /// Any value, used to identify attachable instances.
     const void* ptr;
 
-    token(size_t subtype, const void* ptr);
+    token(size_t typenr, const void* vptr);
   };
 
   virtual ~attachable();

@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -42,9 +42,9 @@ namespace caf {
 namespace io {
 
 struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
-  basp_broker_state(broker* self);
+  basp_broker_state(broker* selfptr);
 
-  ~basp_broker_state();
+  ~basp_broker_state() override;
 
   // inherited from proxy_registry::backend
   strong_actor_ptr make_proxy(node_id nid, actor_id aid) override;
@@ -57,26 +57,23 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
                           std::set<std::string>& sigs) override;
 
   // inherited from basp::instance::listener
-  void purge_state(const node_id& id) override;
+  void purge_state(const node_id& nid) override;
 
   // inherited from basp::instance::listener
   void proxy_announced(const node_id& nid, actor_id aid) override;
 
   // inherited from basp::instance::listener
-  void kill_proxy(const node_id& nid, actor_id aid, const error& rsn) override;
-
-  // inherited from basp::instance::listener
-  void deliver(const node_id& source_node, actor_id source_actor,
-               actor_id dest_actor, message_id mid,
+  void deliver(const node_id& src_nid, actor_id src_aid,
+               actor_id dest_aid, message_id mid,
                std::vector<strong_actor_ptr>& stages, message& msg) override;
 
   // inherited from basp::instance::listener
-  void deliver(const node_id& source_node, actor_id source_actor,
-               atom_value dest_actor, message_id mid,
+  void deliver(const node_id& src_nid, actor_id src_aid,
+               atom_value dest_name, message_id mid,
                std::vector<strong_actor_ptr>& stages, message& msg) override;
 
   // called from both overriden functions
-  void deliver(const node_id& source_node, actor_id source_actor,
+  void deliver(const node_id& src_nid, actor_id src_aid,
                strong_actor_ptr dest, message_id mid,
                std::vector<strong_actor_ptr>& stages, message& msg);
 
@@ -85,7 +82,7 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
 
   // inherited from basp::instance::listener
   void learned_new_node_directly(const node_id& nid,
-                                 bool was_known_indirectly_before) override;
+                                 bool was_indirectly_before) override;
 
   // inherited from basp::instance::listener
   void learned_new_node_indirectly(const node_id& nid) override;
@@ -110,7 +107,11 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
     optional<response_promise> callback;
   };
 
+  /// Sets `this_context` by either creating or accessing state for `hdl`.
   void set_context(connection_handle hdl);
+
+  /// Cleans up any state for `hdl`.
+  void cleanup(connection_handle hdl);
 
   // pointer to ourselves
   broker* self;
@@ -118,8 +119,10 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
   // protocol instance of BASP
   basp::instance instance;
 
+  using ctx_map = std::unordered_map<connection_handle, connection_context>;
+
   // keeps context information for all open connections
-  std::unordered_map<connection_handle, connection_context> ctx;
+  ctx_map ctx;
 
   // points to the current context for callbacks such as `make_proxy`
   connection_context* this_context = nullptr;
@@ -138,6 +141,19 @@ struct basp_broker_state : proxy_registry::backend, basp::instance::callee {
   const node_id& this_node() const {
     return instance.this_node();
   }
+
+  using monitored_actor_map =
+    std::unordered_map<actor_addr, std::unordered_set<node_id>>;
+
+  // keeps a list of nodes that monitor a particular local actor
+  monitored_actor_map monitored_actors;
+
+  // sends a kill_proxy message to a remote node
+  void send_kill_proxy_instance(const node_id& nid, actor_id aid, error err);
+
+  // sends kill_proxy_instance message to all nodes monitoring the terminated
+  // actor
+  void handle_down_msg(down_msg&);
 
   static const char* name;
 };

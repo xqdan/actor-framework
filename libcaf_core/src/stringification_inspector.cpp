@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -41,8 +41,8 @@ void stringification_inspector::consume(atom_value& x) {
 }
 
 void stringification_inspector::consume(const char* cstr) {
-  if (!cstr || *cstr == '\0') {
-    result_ += "\"\"";
+  if (cstr == nullptr || *cstr == '\0') {
+    result_ += R"("")";
     return;
   }
   if (*cstr == '"') {
@@ -58,10 +58,10 @@ void stringification_inspector::consume(const char* cstr) {
         result_ += c;
         break;
       case '\\':
-        result_ += "\\\\";
+        result_ += R"(\\)";
         break;
       case '"':
-        result_ += "\\\"";
+        result_ += R"(\")";
         break;
       case '\0':
         goto end_of_string;

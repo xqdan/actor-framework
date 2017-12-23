@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -46,8 +46,7 @@ optional<routing_table::route> routing_table::lookup(const node_id& target) {
       hdl = lookup_direct(hop);
       if (hdl != invalid_connection_handle)
         return route{parent_->wr_buf(hdl), hop, hdl};
-      else
-        hops.erase(hops.begin());
+      hops.erase(hops.begin());
     }
   }
   return none;

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 2.8.4)
 project(caf C CXX)
 
+include(CheckCSourceCompiles)
+include(CheckCSourceRuns)
+
 # be nice to vim users
 set(CMAKE_EXPORT_COMPILE_COMMANDS 1)
 
@@ -14,6 +17,40 @@ if(WIN32 AND NOT CAF_BUILD_STATIC_ONLY)
   message(STATUS "CAF currently only supports static-only builds on Windows")
   set(CAF_BUILD_STATIC_ONLY yes)
 endif()
+
+if(CAF_BUILD_STATIC_RUNTIME)
+    set(flags_configs
+        CMAKE_CXX_FLAGS
+        CMAKE_CXX_FLAGS_DEBUG
+        CMAKE_CXX_FLAGS_RELEASE
+        CMAKE_CXX_FLAGS_RELWITHDEBINFO
+        CMAKE_CXX_FLAGS_MINSIZEREL
+        CMAKE_C_FLAGS
+        CMAKE_C_FLAGS_DEBUG
+        CMAKE_C_FLAGS_RELEASE
+        CMAKE_C_FLAGS_RELWITHDEBINFO
+        CMAKE_C_FLAGS_MINSIZEREL
+        )
+  foreach(flags ${flags_configs})
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+      if(NOT ${flags} MATCHES "-static-libstdc\\+\\+")
+        set(${flags} "${${flags}} -static-libstdc++")
+      endif()
+      if(NOT ${flags} MATCHES "-static-libgcc")
+        set(${flags} "${${flags}} -static-libgcc")
+      endif()
+    elseif(MSVC)
+      if(${flags} MATCHES "/MD")
+        string(REGEX REPLACE "/MD" "/MT" ${flags} "${${flags}}")
+      endif()
+    endif()
+  endforeach()
+else()
+  set(CAF_BUILD_STATIC_RUNTIME no)
+endif()
+
+# add helper target that simplifies re-running configure
+add_custom_target(configure COMMAND ${CMAKE_CURRENT_BINARY_DIR}/config.status)
 
 ################################################################################
 #                        set included flags if needed                          #
@@ -72,6 +109,10 @@ endif()
 
 if(NOT CAF_NO_OPENCL)
   set(CAF_NO_OPENCL no)
+endif()
+
+if(NOT CAF_NO_OPENSSL)
+  set(CAF_NO_OPENSSL no)
 endif()
 
 if(NOT CAF_NO_PYTHON)
@@ -174,6 +215,10 @@ if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang"
    OR "${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
   set(EXTRA_FLAGS "-ftemplate-depth=512 -ftemplate-backtrace-limit=0")
 endif()
+# explicitly disable obnoxious GCC warnings
+if("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
+  set(EXTRA_FLAGS "-Wno-missing-field-initializers")
+endif()
 # add "-Werror" flag if --pedantic-build is used
 if(CAF_CXX_WARNINGS_AS_ERRORS)
   set(EXTRA_FLAGS "${EXTRA_FLAGS} -Werror")
@@ -212,7 +257,7 @@ if(CAF_MORE_WARNINGS)
                "-Wignored-qualifiers -Winit-self "
                "-Winline -Wint-to-pointer-cast -Winvalid-memory-model "
                "-Winvalid-offsetof -Wlogical-op -Wmain -Wmaybe-uninitialized "
-               "-Wmissing-braces -Wmissing-field-initializers -Wmultichar "
+               "-Wmissing-braces -Wmultichar "
                "-Wnarrowing -Wnoexcept -Wnon-template-friend "
                "-Wnon-virtual-dtor -Wnonnull -Woverflow "
                "-Woverlength-strings -Wparentheses "
@@ -307,7 +352,7 @@ if(NOT CMAKE_CXX_FLAGS_RELEASE)
   set(CMAKE_CXX_FLAGS_RELEASE           "-O3 -DNDEBUG")
 endif()
 if(NOT CMAKE_CXX_FLAGS_RELWITHDEBINFO)
-  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO    "-O2 -g")
+  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO    "-O2 -g -fno-omit-frame-pointer")
 endif()
 # set build default build type to RelWithDebInfo if not set
 if(NOT CMAKE_BUILD_TYPE)
@@ -487,12 +532,54 @@ endmacro()
 add_caf_lib(core)
 add_optional_caf_lib(io)
 
+# build SSL module if OpenSSL library is available
+if(NOT CAF_NO_OPENSSL)
+  find_package(OpenSSL)
+  if(OPENSSL_FOUND)
+    # Check OpenSSL version >= 1.0.1
+    if (OPENSSL_VERSION VERSION_LESS 1.0.1)
+      message(STATUS
+              "Disable OpenSSL. Required >= 1.0.1 due to TLSv1.2 support.")
+      set(CAF_NO_OPENSSL yes)
+    else()
+      # Check if openssl headers and library versions match
+      set(CMAKE_REQUIRED_LIBRARIES ${OPENSSL_LIBRARIES})
+      set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIR})
+      check_c_source_runs("
+        #include <openssl/opensslv.h>
+        #include <openssl/crypto.h>
+        int main() {
+          if (SSLeay() == OPENSSL_VERSION_NUMBER) {
+            return 0;
+          }
+          return -1;
+        }
+      " OPENSSL_CORRECT_VERSION_NUMBER)
+      if (NOT OPENSSL_CORRECT_VERSION_NUMBER)
+        message(FATAL_ERROR
+          "OpenSSL library version does not match headers")
+      endif()
+      include_directories(BEFORE ${OPENSSL_INCLUDE_DIR})
+      add_optional_caf_lib(openssl)
+    endif()
+  else(OPENSSL_FOUND)
+    set(CAF_NO_OPENSSL yes)
+  endif(OPENSSL_FOUND)
+endif()
+
 # build opencl library if not told otherwise and OpenCL package was found
 if(NOT CAF_NO_OPENCL)
-  find_package(OpenCL)
-  if(OpenCL_FOUND)
-    add_optional_caf_lib(opencl)
-    add_optional_caf_binaries(libcaf_opencl/examples)
+  if(${CMAKE_MAJOR_VERSION}.${CMAKE_MINOR_VERSION} GREATER 3.0)
+    find_package(OpenCL)
+    if(OpenCL_FOUND)
+      add_optional_caf_lib(opencl)
+      add_optional_caf_binaries(libcaf_opencl/examples)
+    else()
+      set(CAF_NO_OPENCL yes)
+    endif()
+  else()
+    set(CAF_NO_OPENCL yes)
+    message(STATUS "Could NOT find OpenCL, requires Cmake >= 3.1.")
   endif()
 endif()
 
@@ -675,6 +762,7 @@ invertYesNo(CAF_NO_EXCEPTIONS CAF_BUILD_WITH_EXCEPTIONS)
 invertYesNo(CAF_NO_MEM_MANAGEMENT CAF_BUILD_MEM_MANAGEMENT)
 invertYesNo(CAF_NO_BENCHMARKS CAF_BUILD_BENCHMARKS)
 invertYesNo(CAF_NO_OPENCL CAF_BUILD_OPENCL)
+invertYesNo(CAF_NO_OPENSSL CAF_BUILD_OPENSSL)
 invertYesNo(CAF_NO_PYTHON CAF_BUILD_PYTHON)
 # collect all compiler flags
 string(TOUPPER "${CMAKE_BUILD_TYPE}" UPPER_BUILD_TYPE)
@@ -684,34 +772,36 @@ if(NOT CAF_NO_SUMMARY)
   message(STATUS
         "\n====================|  Build Summary  |===================="
         "\n"
-        "\nLibcaf version:    ${CAF_VERSION}"
+        "\nLibcaf version:        ${CAF_VERSION}"
         "\n"
-        "\nBuild type:        ${CMAKE_BUILD_TYPE}"
-        "\nBuild static:      ${CAF_BUILD_STATIC}"
-        "\nBuild static only: ${CAF_BUILD_STATIC_ONLY}"
-        "\nRuntime checks:    ${CAF_ENABLE_RUNTIME_CHECKS}"
-        "\nLog level:         ${LOG_LEVEL_STR}"
-        "\nWith mem. mgmt.:   ${CAF_BUILD_MEM_MANAGEMENT}"
-        "\nWith exceptions:   ${CAF_BUILD_WITH_EXCEPTIONS}"
+        "\nBuild type:            ${CMAKE_BUILD_TYPE}"
+        "\nBuild static:          ${CAF_BUILD_STATIC}"
+        "\nBuild static only:     ${CAF_BUILD_STATIC_ONLY}"
+        "\nBuild static runtime:  ${CAF_BUILD_STATIC_RUNTIME}"
+        "\nRuntime checks:        ${CAF_ENABLE_RUNTIME_CHECKS}"
+        "\nLog level:             ${LOG_LEVEL_STR}"
+        "\nWith mem. mgmt.:       ${CAF_BUILD_MEM_MANAGEMENT}"
+        "\nWith exceptions:       ${CAF_BUILD_WITH_EXCEPTIONS}"
         "\n"
-        "\nBuild I/O module:  ${CAF_BUILD_IO}"
-        "\nBuild tools:       ${CAF_BUILD_TOOLS}"
-        "\nBuild examples:    ${CAF_BUILD_EXAMPLES}"
-        "\nBuild unit tests:  ${CAF_BUILD_UNIT_TESTS}"
-        "\nBuild benchmarks:  ${CAF_BUILD_BENCHMARKS}"
-        "\nBuild opencl:      ${CAF_BUILD_OPENCL}"
-        "\nBuild Python:      ${CAF_BUILD_PYTHON}"
+        "\nBuild I/O module:      ${CAF_BUILD_IO}"
+        "\nBuild tools:           ${CAF_BUILD_TOOLS}"
+        "\nBuild examples:        ${CAF_BUILD_EXAMPLES}"
+        "\nBuild unit tests:      ${CAF_BUILD_UNIT_TESTS}"
+        "\nBuild benchmarks:      ${CAF_BUILD_BENCHMARKS}"
+        "\nBuild OpenCL:          ${CAF_BUILD_OPENCL}"
+        "\nBuild OpenSSL:         ${CAF_BUILD_OPENSSL}"
+        "\nBuild Python:          ${CAF_BUILD_PYTHON}"
         "\n"
-        "\nCXX:               ${CMAKE_CXX_COMPILER}"
-        "\nCXXFLAGS:          ${ALL_CXX_FLAGS}"
-        "\nLIBRARIES:         ${LD_FLAGS}"
+        "\nCXX:                   ${CMAKE_CXX_COMPILER}"
+        "\nCXXFLAGS:              ${ALL_CXX_FLAGS}"
+        "\nLIBRARIES:             ${LD_FLAGS}"
         "\n"
-        "\nSource directory:  ${CMAKE_CURRENT_SOURCE_DIR}"
-        "\nBuild directory:   ${CMAKE_CURRENT_BINARY_DIR}"
-        "\nExecutable path:   ${EXECUTABLE_OUTPUT_PATH}"
-        "\nLibrary path:      ${LIBRARY_OUTPUT_PATH}"
-        "\nInstall prefix:    ${CMAKE_INSTALL_PREFIX}"
-        "\nGenerator:         ${CMAKE_GENERATOR}"
+        "\nSource directory:      ${CMAKE_CURRENT_SOURCE_DIR}"
+        "\nBuild directory:       ${CMAKE_CURRENT_BINARY_DIR}"
+        "\nExecutable path:       ${EXECUTABLE_OUTPUT_PATH}"
+        "\nLibrary path:          ${LIBRARY_OUTPUT_PATH}"
+        "\nInstall prefix:        ${CMAKE_INSTALL_PREFIX}"
+        "\nGenerator:             ${CMAKE_GENERATOR}"
         "\n"
         "\n===========================================================\n")
 endif()

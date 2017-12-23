@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -43,7 +43,7 @@ struct profiled : Policy {
 
   static actor_id id_of(resumable* job) {
     auto ptr = dynamic_cast<abstract_actor*>(job);
-    return ptr ? ptr->id() : 0;
+    return ptr != nullptr ? ptr->id() : 0;
   }
 
   template <class Worker>

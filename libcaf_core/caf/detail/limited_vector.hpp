@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -86,7 +86,7 @@ public:
   template <class InputIterator>
   void assign(InputIterator first, InputIterator last,
               // dummy SFINAE argument
-              typename std::iterator_traits<InputIterator>::pointer = 0) {
+              typename std::iterator_traits<InputIterator>::pointer = nullptr) {
     auto dist = std::distance(first, last);
     CAF_ASSERT(dist >= 0);
     resize(static_cast<size_t>(dist));

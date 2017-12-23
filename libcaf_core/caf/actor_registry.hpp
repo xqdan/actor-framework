@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -48,11 +48,11 @@ public:
 
   ~actor_registry();
 
-  /// Returns the the local actor associated to `key`.
+  /// Returns the local actor associated to `key`.
   strong_actor_ptr get(actor_id key) const;
 
   /// Associates a local actor with its ID.
-  void put(actor_id key, strong_actor_ptr value);
+  void put(actor_id key, strong_actor_ptr val);
 
   /// Removes an actor from this registry,
   /// leaving `reason` for future reference.

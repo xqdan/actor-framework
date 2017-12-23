@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -39,9 +39,9 @@ using scribe_base = broker_servant<network::stream_manager, connection_handle,
 /// @ingroup Broker
 class scribe : public scribe_base {
 public:
-  scribe(abstract_broker* parent, connection_handle hdl);
+  scribe(connection_handle conn_hdl);
 
-  ~scribe();
+  ~scribe() override;
 
   /// Implicitly starts the read loop on first call.
   virtual void configure_read(receive_policy::config config) = 0;
@@ -69,7 +69,13 @@ protected:
   message detach_message() override;
 };
 
+using scribe_ptr = intrusive_ptr<scribe>;
+
 } // namespace io
 } // namespace caf
+
+// Allows the `middleman_actor` to create a `scribe` and then send it to the
+// BASP broker.
+CAF_ALLOW_UNSAFE_MESSAGE_TYPE(caf::io::scribe_ptr)
 
 #endif // CAF_IO_SCRIBE_HPP

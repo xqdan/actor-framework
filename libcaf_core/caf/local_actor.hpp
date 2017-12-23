@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -99,9 +99,9 @@ public:
 
   // -- constructors, destructors, and assignment operators --------------------
 
-  local_actor(actor_config& sys);
+  local_actor(actor_config& cfg);
 
-  ~local_actor();
+  ~local_actor() override;
 
   void on_destroy() override;
 
@@ -113,7 +113,7 @@ public:
 
   /// Requests a new timeout for `mid`.
   /// @pre `mid.valid()`
-  void request_response_timeout(const duration& dr, message_id mid);
+  void request_response_timeout(const duration& d, message_id mid);
 
   // -- spawn functions --------------------------------------------------------
 
@@ -178,14 +178,14 @@ public:
   // -- sending asynchronous messages ------------------------------------------
 
   /// Sends an exit message to `dest`.
-  void send_exit(const actor_addr& dest, error reason);
+  void send_exit(const actor_addr& whom, error reason);
 
   void send_exit(const strong_actor_ptr& dest, error reason);
 
   /// Sends an exit message to `dest`.
   template <class ActorHandle>
   void send_exit(const ActorHandle& dest, error reason) {
-    dest->eq_impl(message_id::make(), nullptr, context(),
+    dest->eq_impl(message_id::make(), ctrl(), context(),
                   exit_msg{address(), std::move(reason)});
   }
 
@@ -209,7 +209,7 @@ public:
 
   /// @cond PRIVATE
 
-  void monitor(abstract_actor* whom);
+  void monitor(abstract_actor* ptr);
 
   /// @endcond
 
@@ -218,6 +218,63 @@ public:
   inline strong_actor_ptr& current_sender() {
     CAF_ASSERT(current_element_);
     return current_element_->sender;
+  }
+
+  /// Returns the ID of the current message.
+  inline message_id current_message_id() {
+    CAF_ASSERT(current_element_);
+    return current_element_->mid;
+  }
+
+  /// Returns the ID of the current message and marks the ID stored in the
+  /// current mailbox element as answered.
+  inline message_id take_current_message_id() {
+    CAF_ASSERT(current_element_);
+    auto result = current_element_->mid;
+    current_element_->mid.mark_as_answered();
+    return result;
+  }
+
+  /// Marks the current message ID as answered.
+  inline void drop_current_message_id() {
+    CAF_ASSERT(current_element_);
+    current_element_->mid.mark_as_answered();
+  }
+
+  /// Returns a pointer to the next stage from the forwarding path of the
+  /// current message or `nullptr` if the path is empty.
+  inline strong_actor_ptr current_next_stage() {
+    CAF_ASSERT(current_element_);
+    auto& stages = current_element_->stages;
+    if (!stages.empty())
+      stages.back();
+    return nullptr;
+  }
+
+  /// Returns a pointer to the next stage from the forwarding path of the
+  /// current message and removes it from the path. Returns `nullptr` if the
+  /// path is empty.
+  inline strong_actor_ptr take_current_next_stage() {
+    CAF_ASSERT(current_element_);
+    auto& stages = current_element_->stages;
+    if (!stages.empty()) {
+      auto result = stages.back();
+      stages.pop_back();
+      return result;
+    }
+    return nullptr;
+  }
+
+  /// Returns the forwarding stack from the current mailbox element.
+  const mailbox_element::forwarding_stack& current_forwarding_stack() {
+    CAF_ASSERT(current_element_);
+    return current_element_->stages;
+  }
+
+  /// Moves the forwarding stack from the current mailbox element.
+  mailbox_element::forwarding_stack take_current_forwarding_stack() {
+    CAF_ASSERT(current_element_);
+    return std::move(current_element_->stages);
   }
 
   /// Returns a pointer to the currently processed mailbox element.
@@ -256,7 +313,7 @@ public:
     auto& mid = ptr->mid;
     if (mid.is_answered())
       return {};
-    return {this->context(), this->ctrl(), *ptr};
+    return {this->ctrl(), *ptr};
   }
 
   /// Creates a `response_promise` to respond to a request later on.
@@ -283,12 +340,12 @@ public:
   /// Serializes the state of this actor to `sink`. This function is
   /// only called if this actor has set the `is_serializable` flag.
   /// The default implementation throws a `std::logic_error`.
-  virtual error save_state(serializer& sink, const unsigned int version);
+  virtual error save_state(serializer& sink, unsigned int version);
 
   /// Deserializes the state of this actor from `source`. This function is
   /// only called if this actor has set the `is_serializable` flag.
   /// The default implementation throws a `std::logic_error`.
-  virtual error load_state(deserializer& source, const unsigned int version);
+  virtual error load_state(deserializer& source, unsigned int version);
 
   /// Returns the currently defined fail state. If this reason is not
   /// `none` then the actor will terminate with this error after executing
@@ -349,7 +406,7 @@ public:
 
   virtual void initialize();
 
-  bool cleanup(error&& reason, execution_unit* host) override;
+  bool cleanup(error&& fail_state, execution_unit* host) override;
 
   message_id new_request_id(message_priority mp);
 
@@ -363,7 +420,7 @@ public:
   bool has_next_message();
 
   /// Appends `x` to the cache for later consumption.
-  void push_to_cache(mailbox_element_ptr x);
+  void push_to_cache(mailbox_element_ptr ptr);
 
 protected:
   // -- member variables -------------------------------------------------------

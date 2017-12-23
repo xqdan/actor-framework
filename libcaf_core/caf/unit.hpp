@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -57,7 +57,7 @@ static constexpr unit_t unit = unit_t{};
 
 /// @relates unit_t
 template <class Processor>
-void serialize(Processor&, const unit_t&, const unsigned int) {
+void serialize(Processor&, const unit_t&, unsigned int) {
   // nop
 }
 

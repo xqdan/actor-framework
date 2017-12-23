@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -16,6 +16,8 @@
  * http://opensource.org/licenses/BSD-3-Clause and                            *
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
+
+#include <utility>
 
 #include "caf/blocking_actor.hpp"
 
@@ -59,14 +61,21 @@ blocking_actor::~blocking_actor() {
 }
 
 void blocking_actor::enqueue(mailbox_element_ptr ptr, execution_unit*) {
+  CAF_ASSERT(ptr != nullptr);
+  CAF_ASSERT(getf(is_blocking_flag));
+  CAF_LOG_TRACE(CAF_ARG(*ptr));
+  CAF_LOG_SEND_EVENT(ptr);
   auto mid = ptr->mid;
   auto src = ptr->sender;
   // returns false if mailbox has been closed
   if (!mailbox().synchronized_enqueue(mtx_, cv_, ptr.release())) {
+    CAF_LOG_REJECT_EVENT();
     if (mid.is_request()) {
       detail::sync_request_bouncer srb{exit_reason()};
       srb(src, mid);
     }
+  } else {
+    CAF_LOG_ACCEPT_EVENT(false);
   }
 }
 
@@ -82,9 +91,13 @@ void blocking_actor::launch(execution_unit*, bool, bool hide) {
   home_system().inc_detached_threads();
   std::thread([](strong_actor_ptr ptr) {
     // actor lives in its own thread
+    ptr->home_system->thread_started();
     auto this_ptr = ptr->get();
     CAF_ASSERT(dynamic_cast<blocking_actor*>(this_ptr) != 0);
     auto self = static_cast<blocking_actor*>(this_ptr);
+    CAF_SET_LOGGER_SYS(ptr->home_system);
+    CAF_PUSH_AID_FROM_PTR(self);
+    self->initialize();
     error rsn;
 #   ifndef CAF_NO_EXCEPTIONS
     try {
@@ -106,13 +119,14 @@ void blocking_actor::launch(execution_unit*, bool, bool hide) {
     self->on_exit();
 #   endif
     self->cleanup(std::move(rsn), self->context());
+    ptr->home_system->thread_terminates();
     ptr->home_system->dec_detached_threads();
-  }, ctrl()).detach();
+  }, strong_actor_ptr{ctrl()}).detach();
 }
 
 blocking_actor::receive_while_helper
 blocking_actor::receive_while(std::function<bool()> stmt) {
-  return {this, stmt};
+  return {this, std::move(stmt)};
 }
 
 blocking_actor::receive_while_helper
@@ -267,7 +281,7 @@ public:
 
   bool at_end() override {
     if (ptr_->at_end()) {
-      if (!fallback_)
+      if (fallback_ == nullptr)
         return true;
       ptr_ = fallback_;
       fallback_ = nullptr;
@@ -332,18 +346,24 @@ void blocking_actor::receive_impl(receive_cond& rcc,
       skipped = false;
       timed_out = false;
       auto& x = seq.value();
+      CAF_LOG_RECEIVE_EVENT((&x));
       // skip messages that don't match our message ID
       if ((mid.valid() && mid != x.mid)
           || (!mid.valid() && x.mid.is_response())) {
         skipped = true;
+        CAF_LOG_SKIP_EVENT();
       } else {
+        // automatically unlink from actors when receiving exit messages
+        if (x.content().match_elements<exit_msg>())
+          unlink_from(x.content().get_as<exit_msg>(0).source);
         // blocking actors can use nested receives => restore current_element_
         auto prev_element = current_element_;
         current_element_ = &x;
         switch (bhvr.nested(visitor, x.content())) {
           case match_case::skip:
-             skipped = true;
-             break;
+            skipped = true;
+            CAF_LOG_SKIP_EVENT();
+            break;
           default:
             break;
           case match_case::no_match: {
@@ -353,6 +373,7 @@ void blocking_actor::receive_impl(receive_cond& rcc,
             // get a match on the second (error) handler
             if (sres.flag != rt_skip) {
               visitor.visit(sres);
+              CAF_LOG_FINALIZE_EVENT();
             } else if (mid.valid()) {
              // invoke again with an unexpected_response error
              auto& old = *current_element_;
@@ -362,8 +383,10 @@ void blocking_actor::receive_impl(receive_cond& rcc,
                                              std::move(old.stages), err};
              current_element_ = &tmp;
              bhvr.nested(tmp.content());
+              CAF_LOG_FINALIZE_EVENT();
             } else {
               skipped = true;
+              CAF_LOG_SKIP_EVENT();
             }
           }
         }
@@ -378,13 +401,16 @@ void blocking_actor::receive_impl(receive_cond& rcc,
         }
       }
     } while (skipped && !timed_out);
-    if (timed_out)
+    if (timed_out) {
       bhvr.handle_timeout();
-    else
-      seq.erase_and_advance();
-    // check loop post condition
-    if (!rcc.post())
-      return;
+      if (!rcc.post())
+        return;
+    } else {
+      if (rcc.post())
+        seq.erase_and_advance();
+      else
+        return;
+    }
   }
 }
 

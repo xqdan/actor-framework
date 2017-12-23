@@ -87,7 +87,7 @@ echo "\
                         \____/_/   \_|_|
 
 This script expects to run at the root directory of a Git clone of CAF.
-The current repository must be develop, there must be no untracked file,
+The current repository must be master. There must be no untracked file
 and the working tree status must be equal to the current HEAD commit.
 Further, the script expects a relase_note.md file in the current directory
 with the developer blog checked out one level above, i.e.:
@@ -106,9 +106,13 @@ with the developer blog checked out one level above, i.e.:
 
 "
 
+if [ $(git rev-parse --abbrev-ref HEAD) != "master" ]; then
+  raise_error "not in master branch"
+fi
+
 # assumed files
 token_path="$HOME/.github-oauth-token"
-blog_msg="github_release_note.md"
+blog_msg="blog_release_note.md"
 github_msg="github_release_note.md"
 config_hpp_path="libcaf_core/caf/config.hpp"
 
@@ -116,16 +120,19 @@ config_hpp_path="libcaf_core/caf/config.hpp"
 blog_posts_path="../blog/_posts"
 
 # check whether all expected files and directories exist
-assert_exists "$token_path" "$config_hpp_path" "$blog_msg" "$github_msg"
+assert_exists "$token_path" "$config_hpp_path" "$github_msg"
 
+# check for a clean state
+assert_exists_not .make-release-steps.bash
 assert_git_status_clean "."
 
-if [ ! -f "$blog_posts_path"  ]; then
-  ask_permission "blog_release_note.md missing, continue without blog post [y] or abort [n]?"
+if [ ! -f "$blog_msg"  ]; then
+  ask_permission "$blog_msg missing, continue without blog post [y] or abort [n]?"
 else
   # target files
+  assert_exists "$blog_posts_path"
   blog_target_file="$blog_posts_path/$(date +%F)-version-$1-released.md"
-  assert_exists_not "$blog_target_file" .make-release-steps.bash
+  assert_exists_not "$blog_target_file"
   assert_git_status_clean "../blog/"
 fi
 
@@ -144,7 +151,7 @@ echo ; echo
 echo ">>> please review the diff reported by Git for patching config.hpp:"
 git diff
 echo ; echo
-ask_permission "type [n] to abort or [y] for commiting and pushing it"
+ask_permission "type [n] to abort or [y] to proceed"
 
 # piping through AWK/printf makes sure 0.15 is expanded to 0.15.0
 tag_version=$(echo "$1" | awk -F. '{ printf("%d.%d.%d", $1, $2, $3)  }')
@@ -163,14 +170,17 @@ git commit -a -m \"Change version to $1\"
 git push
 git tag $tag_version
 git push origin --tags
-git checkout master
-git merge develop
-git push
-git checkout develop
 curl --data '$github_json' https://api.github.com/repos/actor-framework/actor-framework/releases?access_token=$token
 " > .make-release-steps.bash
 
-if [ -f "$blog_posts_path"  ]; then
+if which brew &>/dev/null ; then
+  file_url="https://github.com/actor-framework/actor-framework/archive/$tag_version.tar.gz"
+  echo "\
+brew bump-formula-pr --message=\"Update CAF to version $tag_version\" --url=\"$file_url\" caf
+" >> .make-release-steps.bash
+fi
+
+if [ -f "$blog_msg"  ]; then
   echo "\
   cp "$blog_msg" "$blog_target_file"
   cd ../blog
@@ -192,7 +202,10 @@ chmod +x .make-release-steps.bash
 
 echo ; echo
 echo ">>> cleaning up"
-rm "$blog_msg" "$github_msg" .make-release-steps.bash
+rm "$github_msg" .make-release-steps.bash
+if [ -f "$blog_msg" ]; then
+  rm "$blog_msg"
+fi
 
 echo ; echo
 echo ">>> done"

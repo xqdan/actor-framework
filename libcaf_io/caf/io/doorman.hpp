@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -21,6 +21,7 @@
 #define CAF_IO_DOORMAN_HPP
 
 #include <cstddef>
+#include <cstdint>
 
 #include "caf/message.hpp"
 #include "caf/mailbox_element.hpp"
@@ -40,24 +41,30 @@ using doorman_base = broker_servant<network::acceptor_manager, accept_handle,
 /// @ingroup Broker
 class doorman : public doorman_base {
 public:
-  doorman(abstract_broker* parent, accept_handle hdl);
+  doorman(accept_handle acc_hdl);
 
-  ~doorman();
+  ~doorman() override;
 
   void io_failure(execution_unit* ctx, network::operation op) override;
 
   using doorman_base::new_connection;
 
-  bool new_connection(execution_unit* ctx, connection_handle hdl);
+  bool new_connection(execution_unit* ctx, connection_handle x);
 
-  // needs to be launched explicitly
+  /// Starts listening on the selected port.
   virtual void launch() = 0;
 
 protected:
   message detach_message() override;
 };
 
+using doorman_ptr = intrusive_ptr<doorman>;
+
 } // namespace io
 } // namespace caf
+
+// Allows the `middleman_actor` to create a `doorman` and then send it to the
+// BASP broker.
+CAF_ALLOW_UNSAFE_MESSAGE_TYPE(caf::io::doorman_ptr)
 
 #endif // CAF_IO_DOORMAN_HPP

@@ -14,13 +14,13 @@ set (LIBCAF_CORE_SRCS
      src/abstract_actor.cpp
      src/abstract_channel.cpp
      src/abstract_composable_behavior.cpp
-     src/abstract_group.cpp
      src/abstract_coordinator.cpp
+     src/abstract_group.cpp
      src/actor.cpp
      src/actor_addr.cpp
+     src/actor_companion.cpp
      src/actor_config.cpp
      src/actor_control_block.cpp
-     src/actor_companion.cpp
      src/actor_ostream.cpp
      src/actor_pool.cpp
      src/actor_proxy.cpp
@@ -30,14 +30,12 @@ set (LIBCAF_CORE_SRCS
      src/atom.cpp
      src/attachable.cpp
      src/behavior.cpp
-     src/behavior_stack.cpp
      src/behavior_impl.cpp
+     src/behavior_stack.cpp
      src/blocking_actor.cpp
      src/blocking_behavior.cpp
-     src/color.cpp
      src/concatenated_tuple.cpp
      src/config_option.cpp
-     src/continue_helper.cpp
      src/decorated_tuple.cpp
      src/default_attachable.cpp
      src/deserializer.cpp
@@ -54,48 +52,69 @@ set (LIBCAF_CORE_SRCS
      src/group.cpp
      src/group_manager.cpp
      src/group_module.cpp
+     src/inbound_path.cpp
+     src/invalid_stream_gatherer.cpp
+     src/invalid_stream_scatterer.cpp
      src/invoke_result_visitor.cpp
-     src/match_case.cpp
-     src/merged_tuple.cpp
-     src/monitorable_actor.cpp
      src/local_actor.cpp
      src/logger.cpp
      src/mailbox_element.cpp
-     src/memory.cpp
+     src/match_case.cpp
      src/memory_managed.cpp
+     src/merged_tuple.cpp
      src/message.cpp
      src/message_builder.cpp
      src/message_data.cpp
      src/message_handler.cpp
      src/message_view.cpp
+     src/monitorable_actor.cpp
      src/node_id.cpp
+     src/outbound_path.cpp
      src/parse_ini.cpp
+     src/pretty_type_name.cpp
      src/private_thread.cpp
-     src/ref_counted.cpp
      src/proxy_registry.cpp
-     src/response_promise.cpp
+     src/pull5_gatherer.cpp
+     src/random_gatherer.cpp
+     src/raw_event_based_actor.cpp
+     src/ref_counted.cpp
      src/replies_to.cpp
+     src/response_promise.cpp
      src/resumable.cpp
      src/ripemd_160.cpp
      src/scheduled_actor.cpp
      src/scoped_actor.cpp
      src/scoped_execution_unit.cpp
      src/sec.cpp
-     src/serializer.cpp
      src/sequencer.cpp
+     src/serializer.cpp
      src/shared_spinlock.cpp
      src/skip.cpp
      src/splitter.cpp
-     src/sync_request_bouncer.cpp
+     src/stream.cpp
+     src/stream_aborter.cpp
+     src/stream_gatherer.cpp
+     src/stream_gatherer.cpp
+     src/stream_gatherer_impl.cpp
+     src/stream_id.cpp
+     src/stream_manager.cpp
+     src/stream_msg_visitor.cpp
+     src/stream_priority.cpp
+     src/stream_scatterer.cpp
+     src/stream_scatterer_impl.cpp
      src/stringification_inspector.cpp
+     src/sync_request_bouncer.cpp
+     src/term.cpp
+     src/terminal_stream_scatterer.cpp
+     src/test_coordinator.cpp
      src/timestamp.cpp
      src/try_match.cpp
-     src/type_erased_value.cpp
      src/type_erased_tuple.cpp
+     src/type_erased_value.cpp
      src/uniform_type_info_map.cpp
      src/unprofiled.cpp
-     src/work_stealing.cpp
-     src/work_sharing.cpp)
+     src/work_sharing.cpp
+     src/work_stealing.cpp)
 
 add_custom_target(libcaf_core)
 
@@ -110,7 +129,7 @@ if (NOT CAF_BUILD_STATIC_ONLY)
                         OUTPUT_NAME caf_core)
   if (CYGWIN)
     install(TARGETS libcaf_core_shared RUNTIME DESTINATION bin)
-  elseif (NOT WIN32)
+  else()
     install(TARGETS libcaf_core_shared LIBRARY DESTINATION lib)
   endif()
   add_dependencies(libcaf_core_shared libcaf_core)
@@ -121,9 +140,7 @@ if (CAF_BUILD_STATIC_ONLY OR CAF_BUILD_STATIC)
   add_library(libcaf_core_static STATIC ${LIBCAF_CORE_HDRS} ${LIBCAF_CORE_SRCS})
   target_link_libraries(libcaf_core_static ${LD_FLAGS})
   set_target_properties(libcaf_core_static PROPERTIES OUTPUT_NAME caf_core_static)
-  if(NOT WIN32)
-    install(TARGETS libcaf_core_static ARCHIVE DESTINATION lib)
-  endif()
+  install(TARGETS libcaf_core_static ARCHIVE DESTINATION lib)
   add_dependencies(libcaf_core_static libcaf_core)
 endif ()
 

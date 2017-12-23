@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -42,13 +42,13 @@ public:
   // tell actor_cast which semantic this type uses
   static constexpr bool has_weak_ptr_semantics = false;
 
-  scoped_actor(actor_system& sys, bool hide_actor = false);
+  scoped_actor(actor_system& sys, bool hide = false);
 
   scoped_actor(const scoped_actor&) = delete;
   scoped_actor& operator=(const scoped_actor&) = delete;
 
-  scoped_actor(scoped_actor&&) = default;
-  scoped_actor& operator=(scoped_actor&&) = default;
+  scoped_actor(scoped_actor&&) = delete;
+  scoped_actor& operator=(scoped_actor&&) = delete;
 
   ~scoped_actor();
 

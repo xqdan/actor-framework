@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -28,16 +28,12 @@ multiplexer::multiplexer(actor_system* sys) : execution_unit(sys) {
   // nop
 }
 
-boost::asio::io_service* pimpl() {
-  return nullptr;
-}
-
 multiplexer_ptr multiplexer::make(actor_system& sys) {
   CAF_LOG_TRACE("");
   return multiplexer_ptr{new default_multiplexer(&sys)};
 }
 
-boost::asio::io_service* multiplexer::pimpl() {
+multiplexer_backend* multiplexer::pimpl() {
   return nullptr;
 }
 

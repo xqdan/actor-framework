@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <type_traits>
 
+#include "caf/config.hpp"
 #include "caf/detail/type_traits.hpp"
 
 namespace caf {
@@ -131,7 +132,16 @@ void replace_all(std::string& str,
 
 template<size_t S>
 bool starts_with(const std::string& str, const char (&prefix)[S]) {
-  return str.compare(0, S, prefix) == 0;
+  return str.compare(0, S - 1, prefix) == 0;
+}
+
+template <size_t S>
+bool ends_with(const std::string& str, const char (&suffix)[S]) {
+  auto n = str.size();
+  auto m = S - 1;
+  if (n >= m)
+    return str.compare(n - m, m, suffix) == 0;
+  return false;
 }
 
 template <class T>

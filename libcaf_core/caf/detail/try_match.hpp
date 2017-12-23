@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -75,8 +75,8 @@ struct meta_elements<type_list<Ts...>> {
   }
 };
 
-bool try_match(const type_erased_tuple& xs, const meta_element* pattern_begin,
-               size_t pattern_size);
+bool try_match(const type_erased_tuple& xs, const meta_element* iter,
+               size_t ps);
 
 } // namespace detail
 } // namespace caf

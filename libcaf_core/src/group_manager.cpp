@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -87,12 +87,16 @@ public:
   std::pair<bool, size_t> erase_subscriber(const actor_control_block* who) {
     CAF_LOG_TRACE(""); // serializing who would cause a deadlock
     exclusive_guard guard(mtx_);
-    auto cmp = [](const strong_actor_ptr& lhs, const actor_control_block* rhs) {
-      return actor_addr::compare(lhs.get(), rhs) < 0;
-    };
     auto e = subscribers_.end();
-    auto i = std::lower_bound(subscribers_.begin(), e, who, cmp);
-    if (i == e || actor_addr::compare(i->get(), who) != 0)
+#if __cplusplus > 201103L
+    auto i = subscribers_.find(who);
+#else
+    auto cmp = [&](const strong_actor_ptr& lhs) {
+      return lhs.get() == who;
+    };
+    auto i = std::find_if(subscribers_.begin(), e, cmp);
+#endif
+    if(i == e)
       return {false, subscribers_.size()};
     subscribers_.erase(i);
     return {true, subscribers_.size()};
@@ -100,9 +104,7 @@ public:
 
   bool subscribe(strong_actor_ptr who) override {
     CAF_LOG_TRACE(CAF_ARG(who));
-    if (add_subscriber(std::move(who)).first)
-      return true;
-    return false;
+    return add_subscriber(std::move(who)).first;
   }
 
   void unsubscribe(const actor_control_block* who) override {
@@ -122,13 +124,17 @@ public:
   }
 
   local_group(local_group_module& mod, std::string id, node_id nid,
-              optional<actor> local_broker);
+              optional<actor> lb);
 
-  ~local_group();
+  ~local_group() override;
 
 protected:
   detail::shared_spinlock mtx_;
+#if __cplusplus > 201103L
+  std::set<strong_actor_ptr, std::less<>> subscribers_;
+#else
   std::set<strong_actor_ptr> subscribers_;
+#endif
   actor broker_;
 };
 
@@ -224,9 +230,9 @@ public:
     CAF_LOG_TRACE("");
   }
 
-  behavior make_behavior();
+  behavior make_behavior() override;
 
-  void on_exit() {
+  void on_exit() override {
     group_.reset();
   }
 
@@ -487,9 +493,9 @@ expected<group> group_manager::get(const std::string& module_name,
   auto mod = get_module(module_name);
   if (mod)
     return mod->get(group_identifier);
-  std::string error_msg = "no module named \"";
+  std::string error_msg = R"(no module named ")";
   error_msg += module_name;
-  error_msg += "\" found";
+  error_msg += R"(" found)";
   return make_error(sec::no_such_group_module, std::move(error_msg));
 }
 

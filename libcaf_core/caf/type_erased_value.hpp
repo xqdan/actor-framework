@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -70,7 +70,7 @@ public:
 
   /// Checks whether the type of the stored value matches
   /// the type nr and type info object.
-  bool matches(uint16_t tnr, const std::type_info* tinf) const;
+  bool matches(uint16_t nr, const std::type_info* ptr) const;
 
   // -- convenience functions --------------------------------------------------
 

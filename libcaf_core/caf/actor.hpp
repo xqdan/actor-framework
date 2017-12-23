@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -80,6 +80,8 @@ public:
   actor& operator=(actor&&) = default;
   actor& operator=(const actor&) = default;
 
+  actor(std::nullptr_t);
+
   actor(const scoped_actor&);
 
   explicit actor(const unsafe_actor_handle_init_t&) CAF_DEPRECATED;
@@ -107,6 +109,8 @@ public:
     swap(tmp);
     return *this;
   }
+
+  actor& operator=(std::nullptr_t);
 
   actor& operator=(const scoped_actor& x);
 
@@ -227,7 +231,7 @@ namespace std {
 template <>
 struct hash<caf::actor> {
   inline size_t operator()(const caf::actor& ref) const {
-    return static_cast<size_t>(ref->id());
+    return static_cast<size_t>(ref ? ref->id() : 0);
   }
 };
 } // namespace std

@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -66,14 +66,16 @@ public:
 
   mailbox_element();
 
-  mailbox_element(strong_actor_ptr&& sender, message_id id,
-                  forwarding_stack&& stages);
+  mailbox_element(strong_actor_ptr&& x, message_id y,
+                  forwarding_stack&& z);
 
-  virtual ~mailbox_element();
+  ~mailbox_element() override;
 
   type_erased_tuple& content() override;
 
   message move_content_to_message() override;
+
+  message copy_content_to_message() const override;
 
   const type_erased_tuple& content() const;
 
@@ -111,14 +113,20 @@ public:
     // nop
   }
 
-  type_erased_tuple& content() {
+  type_erased_tuple& content() override {
     return *this;
   }
 
-  message move_content_to_message() {
+  message move_content_to_message() override {
     message_factory f;
     auto& xs = this->data();
     return detail::apply_moved_args(f, detail::get_indices(xs), xs);
+  }
+
+  message copy_content_to_message() const override {
+    message_factory f;
+    auto& xs = this->data();
+    return detail::apply_args(f, detail::get_indices(xs), xs);
   }
 
   void dispose() noexcept {
@@ -146,6 +154,12 @@ public:
     message_factory f;
     auto& xs = this->data();
     return detail::apply_moved_args(f, detail::get_indices(xs), xs);
+  }
+
+  message copy_content_to_message() const override {
+    message_factory f;
+    auto& xs = this->data();
+    return detail::apply_args(f, detail::get_indices(xs), xs);
   }
 };
 

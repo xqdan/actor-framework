@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -19,6 +19,7 @@
 
 #include "caf/actor.hpp"
 
+#include <cassert>
 #include <utility>
 
 #include "caf/actor_addr.hpp"
@@ -35,6 +36,10 @@
 
 namespace caf {
 
+actor::actor(std::nullptr_t) : ptr_(nullptr) {
+  // nop
+}
+
 actor::actor(const scoped_actor& x) : ptr_(actor_cast<strong_actor_ptr>(x)) {
   // nop
 }
@@ -49,6 +54,11 @@ actor::actor(actor_control_block* ptr) : ptr_(ptr) {
 
 actor::actor(actor_control_block* ptr, bool add_ref) : ptr_(ptr, add_ref) {
   // nop
+}
+
+actor& actor::operator=(std::nullptr_t) {
+  ptr_.reset();
+  return *this;
 }
 
 actor& actor::operator=(const scoped_actor& x) {
@@ -85,11 +95,11 @@ actor operator*(actor f, actor g) {
 }
 
 actor actor::splice_impl(std::initializer_list<actor> xs) {
-  CAF_ASSERT(xs.size() >= 2);
+  assert(xs.size() >= 2);
   actor_system* sys = nullptr;
   std::vector<strong_actor_ptr> tmp;
   for (auto& x : xs) {
-    if (!sys)
+    if (sys == nullptr)
       sys = &(x->home_system());
     tmp.push_back(actor_cast<strong_actor_ptr>(x));
   }

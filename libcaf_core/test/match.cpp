@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -42,7 +42,7 @@ std::string to_string(const rtti_pair& x) {
   std::string result = "(";
   result += std::to_string(x.first);
   result += ", ";
-  result += x.second ? x.second->name() : "<null>";
+  result += x.second != nullptr ? x.second->name() : "<null>";
   result += ")";
   return result;
 }

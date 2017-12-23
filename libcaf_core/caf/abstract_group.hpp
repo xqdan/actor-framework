@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -42,7 +42,7 @@ public:
 
   // -- constructors, destructors, and assignment operators --------------------
 
-  ~abstract_group();
+  ~abstract_group() override;
 
   // -- pure virtual member functions ------------------------------------------
 
@@ -78,7 +78,7 @@ public:
   }
 
 protected:
-  abstract_group(group_module& parent, std::string id, node_id origin);
+  abstract_group(group_module& mod, std::string id, node_id nid);
 
   actor_system& system_;
   group_module& parent_;

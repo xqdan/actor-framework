@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -73,14 +73,14 @@ public:
 
   actor_companion(actor_config& cfg);
 
-  ~actor_companion();
+  ~actor_companion() override;
 
   // -- overridden functions ---------------------------------------------------
 
-  void enqueue(mailbox_element_ptr what, execution_unit* host) override;
+  void enqueue(mailbox_element_ptr ptr, execution_unit* host) override;
 
-  void enqueue(strong_actor_ptr sender, message_id mid, message content,
-               execution_unit* host) override;
+  void enqueue(strong_actor_ptr src, message_id mid, message content,
+               execution_unit* eu) override;
 
   void launch(execution_unit* eu, bool lazy, bool hide) override;
 

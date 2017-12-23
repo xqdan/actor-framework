@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -35,9 +35,9 @@ namespace network {
 /// for various I/O operations.
 class manager : public ref_counted {
 public:
-  manager(abstract_broker* parent_ptr);
+  manager();
 
-  ~manager();
+  ~manager() override;
 
   /// Sets the parent for this manager.
   /// @pre `parent() == nullptr`
@@ -53,7 +53,7 @@ public:
 
   /// Detach this manager from its parent and invoke `detach_message()``
   /// if `invoke_detach_message == true`.
-  void detach(execution_unit* ctx, bool invoke_detach_message);
+  void detach(execution_unit* ctx, bool invoke_disconnect_message);
 
   /// Causes the manager to stop read operations on its I/O device.
   /// Unwritten bytes are still send before the socket will be closed.

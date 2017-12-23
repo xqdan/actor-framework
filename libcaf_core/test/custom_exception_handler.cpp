@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -30,7 +30,7 @@ using namespace caf;
 
 class exception_testee : public event_based_actor {
 public:
-  ~exception_testee();
+  ~exception_testee() override;
   exception_testee(actor_config& cfg) : event_based_actor(cfg) {
     set_exception_handler([](std::exception_ptr&) -> error {
       return exit_reason::remote_link_unreachable;

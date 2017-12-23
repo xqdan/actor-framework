@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -48,9 +48,8 @@ merged_tuple::merged_tuple(data_type xs, mapping_type ys)
   CAF_ASSERT(!data_.empty());
   CAF_ASSERT(!mapping_.empty());
   // calculate type token
-  for (size_t i = 0; i < mapping_.size(); ++i) {
+  for (auto& p : mapping_) {
     type_token_ <<= 6;
-    auto& p = mapping_[i];
     type_token_ |= data_[p.first]->type_nr(p.second);
   }
 }

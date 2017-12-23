@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -35,13 +35,17 @@ public:
 
   type_erased_tuple& content() override {
     auto ptr = msg_.vals().raw_ptr();
-    if (ptr)
+    if (ptr != nullptr)
       return *ptr;
     return dummy_;
   }
 
   message move_content_to_message() override {
     return std::move(msg_);
+  }
+
+  message copy_content_to_message() const override {
+    return msg_;
   }
 
 private:
@@ -78,6 +82,10 @@ type_erased_tuple& mailbox_element::content() {
 }
 
 message mailbox_element::move_content_to_message() {
+  return {};
+}
+
+message mailbox_element::copy_content_to_message() const {
   return {};
 }
 

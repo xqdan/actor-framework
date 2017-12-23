@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -75,7 +75,7 @@ public:
 
   /// Adds a new direct route to the table.
   /// @pre `hdl != invalid_connection_handle && nid != none`
-  void add_direct(const connection_handle& hdl, const node_id& dest);
+  void add_direct(const connection_handle& hdl, const node_id& nid);
 
   /// Adds a new indirect route to the table.
   bool add_indirect(const node_id& hop, const node_id& dest);

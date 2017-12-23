@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -43,7 +43,7 @@ public:
   /// Provides a callback-based interface for certain BASP events.
   class callee {
   public:
-    explicit callee(actor_system& sys, proxy_registry::backend& mgm);
+    explicit callee(actor_system& sys, proxy_registry::backend& backend);
 
     virtual ~callee();
 
@@ -62,11 +62,6 @@ public:
     /// Called whenever a remote node created a proxy
     /// for one of our local actors.
     virtual void proxy_announced(const node_id& nid, actor_id aid) = 0;
-
-    /// Called whenever a remote actor died to destroy
-    /// the proxy instance on our end.
-    virtual void kill_proxy(const node_id& nid, actor_id aid,
-                            const error& rsn) = 0;
 
     /// Called for each `dispatch_message` without `named_receiver_flag`.
     virtual void deliver(const node_id& source_node, actor_id source_actor,
@@ -121,10 +116,6 @@ public:
 
   /// Sends heartbeat messages to all valid nodes those are directly connected.
   void handle_heartbeat(execution_unit* ctx);
-
-  /// Handles failure or shutdown of a single node. This function purges
-  /// all routes to `affected_node` from the routing table.
-  void handle_node_shutdown(const node_id& affected_node);
 
   /// Returns a route to `target` or `none` on error.
   optional<routing_table::route> lookup(const node_id& target);
@@ -181,15 +172,15 @@ public:
   }
 
   /// Writes a header followed by its payload to `storage`.
-  void write(execution_unit* ctx, buffer_type& storage, header& hdr,
-             payload_writer* writer = nullptr);
+  void write(execution_unit* ctx, buffer_type& buf, header& hdr,
+             payload_writer* pw = nullptr);
 
   /// Writes the server handshake containing the information of the
   /// actor published at `port` to `buf`. If `port == none` or
   /// if no actor is published at this port then a standard handshake is
   /// written (e.g. used when establishing direct connections on-the-fly).
   void write_server_handshake(execution_unit* ctx,
-                              buffer_type& buf, optional<uint16_t> port);
+                              buffer_type& out_buf, optional<uint16_t> port);
 
   /// Writes the client handshake to `buf`.
   void write_client_handshake(execution_unit* ctx,
@@ -202,7 +193,7 @@ public:
   /// Writes a `kill_proxy` to `buf`.
   void write_kill_proxy(execution_unit* ctx, buffer_type& buf,
                         const node_id& dest_node, actor_id aid,
-                        const error& fail_state);
+                        const error& rsn);
 
   /// Writes a `heartbeat` to `buf`.
   void write_heartbeat(execution_unit* ctx,

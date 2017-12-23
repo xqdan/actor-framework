@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -40,8 +40,9 @@ namespace caf {
 ///
 /// After construction, new workers can be added via `{'SYS', 'PUT', actor}`
 /// messages, e.g., `send(my_pool, sys_atom::value, put_atom::value, worker)`.
-/// `{'SYS', 'DELETE', actor}` messages remove a worker from the set,
-/// whereas `{'SYS', 'GET'}` returns a `vector<actor>` containing all workers.
+/// `{'SYS', 'DELETE', actor}` messages remove a specific worker from the set,
+/// `{'SYS', 'DELETE'}` removes all workers, and `{'SYS', 'GET'}` returns a
+/// `vector<actor>` containing all workers.
 ///
 /// Note that the pool *always*  sends exit messages to all of its workers
 /// when forced to quit. The pool monitors all of its workers. Messages queued
@@ -49,7 +50,7 @@ namespace caf {
 /// and resend messages. Advanced caching or resend strategies can be
 /// implemented in a policy.
 ///
-/// It is wort mentioning that the pool is *not* an event-based actor.
+/// It is worth mentioning that the pool is *not* an event-based actor.
 /// Neither does it live in its own thread. Messages are dispatched immediately
 /// during the enqueue operation. Any user-defined policy thus has to dispatch
 /// messages with as little overhead as possible, because the dispatching
@@ -90,16 +91,16 @@ public:
     return impl{std::move(init), std::move(sf), std::move(jf)};
   }
 
-  ~actor_pool();
+  ~actor_pool() override;
 
   /// Returns an actor pool without workers using the dispatch policy `pol`.
-  static actor make(execution_unit* ptr, policy pol);
+  static actor make(execution_unit* eu, policy pol);
 
   /// Returns an actor pool with `n` workers created by the factory
   /// function `fac` using the dispatch policy `pol`.
-  static actor make(execution_unit* ptr, size_t n, factory fac, policy pol);
+  static actor make(execution_unit* eu, size_t num_workers, const factory& fac, policy pol);
 
-  void enqueue(mailbox_element_ptr what, execution_unit* host) override;
+  void enqueue(mailbox_element_ptr what, execution_unit* eu) override;
 
   actor_pool(actor_config& cfg);
 
@@ -109,7 +110,7 @@ protected:
 private:
   bool filter(upgrade_lock<detail::shared_spinlock>&,
               const strong_actor_ptr& sender, message_id mid,
-              message_view& content, execution_unit* host);
+              message_view& mv, execution_unit* eu);
 
   // call without workers_mtx_ held
   void quit(execution_unit* host);

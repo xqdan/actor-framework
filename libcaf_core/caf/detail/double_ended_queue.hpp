@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -126,7 +126,7 @@ public:
   // acquires only one lock
   void append(pointer value) {
     CAF_ASSERT(value != nullptr);
-    node* tmp = new node(value);
+    auto* tmp = new node(value);
     lock_guard guard(tail_lock_);
     // publish & swing last forward
     tail_.load()->next = tmp;
@@ -136,7 +136,7 @@ public:
   // acquires both locks
   void prepend(pointer value) {
     CAF_ASSERT(value != nullptr);
-    node* tmp = new node(value);
+    auto* tmp = new node(value);
     node* first = nullptr;
     // acquire both locks since we might touch last_ too
     lock_guard guard1(head_lock_);
@@ -202,7 +202,7 @@ public:
   // does not lock
   bool empty() const {
     // atomically compares first and last pointer without locks
-    return head_ == tail_;
+    return head_.load() == tail_.load();
   }
 
 private:

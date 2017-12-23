@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -79,7 +79,7 @@ struct await_reflector_reply_behavior {
     CAF_CHECK_EQUAL(str, "Hello reflector!");
     CAF_CHECK_EQUAL(val, 5.0);
     if (++cnt == 7) {
-      for (auto actor : vec)
+      for (const auto& actor : vec)
         self->monitor(actor);
       self->set_down_handler([=](down_msg&) {
         if (++downs == 5)
@@ -91,7 +91,7 @@ struct await_reflector_reply_behavior {
 
 // `grp` may be either local or remote
 void make_client_behavior(event_based_actor* self,
-                          actor server, group grp) {
+                          const actor& server, group grp) {
   self->set_default_handler(skip);
   self->spawn_in_group(grp, make_reflector_behavior);
   self->spawn_in_group(grp, make_reflector_behavior);

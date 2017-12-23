@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -134,18 +134,18 @@ bool run_ssh(actor_system& system, const string& wdir,
   auto packed = encode_base64(full_cmd);
   std::ostringstream oss;
   oss << "ssh -Y -o ServerAliveInterval=60 " << host
-      << " \"echo " << packed << " | base64 --decode | /bin/sh\"";
+      << R"( "echo )" << packed << R"( | base64 --decode | /bin/sh")";
   //return system(oss.str().c_str());
   string line;
   std::cout << "popen: " << oss.str() << std::endl;
   auto fp = popen(oss.str().c_str(), "r");
-  if (!fp)
+  if (fp == nullptr)
     return false;
   char buf[512];
   auto eob = buf + sizeof(buf); // end-of-buf
   auto pred = [](char c) { return c == 0 || c == '\n'; };
   scoped_actor self{system};
-  while (fgets(buf, sizeof(buf), fp)) {
+  while (fgets(buf, sizeof(buf), fp) != nullptr) {
     auto i = buf;
     auto e = std::find_if(i, eob, pred);
     line.insert(line.end(), i, e);
@@ -201,16 +201,17 @@ void bootstrap(actor_system& system,
           << " --caf#slave-name=" << slave.host
           << " --caf#bootstrap-node=";
       bool is_first = true;
-      interfaces::traverse({protocol::ipv4, protocol::ipv6},
-                           [&](const char*, protocol, bool lo, const char* x) {
-        if (lo)
-          return;
-        if (!is_first)
-          oss << ",";
-        else
-          is_first = false;
-        oss << x << "/" << port;
-      });
+      interfaces::traverse(
+        {protocol::ipv4, protocol::ipv6},
+        [&](const char*, protocol::network, bool lo, const char* x) {
+          if (lo)
+            return;
+          if (!is_first)
+            oss << ",";
+          else
+            is_first = false;
+          oss << x << "/" << port;
+        });
       for (auto& arg : args)
         oss << " " << arg;
       if (!run_ssh(system, wdir, oss.str(), slave.host))
@@ -238,13 +239,19 @@ void bootstrap(actor_system& system,
   run_ssh(system, wdir, oss.str(), master.host);
 }
 
+#define RETURN_WITH_ERROR(output)                                              \
+  do {                                                                         \
+    ::std::cerr << output << ::std::endl;                                      \
+    return 1;                                                                  \
+  } while (true)
+
 int main(int argc, char** argv) {
   actor_system_config cfg;
   cfg.parse(argc, argv);
   if (cfg.cli_helptext_printed)
     return 0;
   if (cfg.slave_mode)
-    return cerr << "cannot use slave mode in caf-run tool" << endl, 1;
+    RETURN_WITH_ERROR("cannot use slave mode in caf-run tool");
   string hostfile;
   std::unique_ptr<char, void (*)(void*)> pwd{getcwd(nullptr, 0), ::free};
   string wdir;
@@ -253,16 +260,16 @@ int main(int argc, char** argv) {
     {"wdir", wdir}
   });
   if (hostfile.empty())
-    return cerr << "no hostfile specified or hostfile is empty" << endl, 1;
+    RETURN_WITH_ERROR("no hostfile specified or hostfile is empty");
   auto& remainder = res.remainder;
   if (remainder.empty())
-    return cerr << "empty command line" << endl, 1;
+    RETURN_WITH_ERROR("empty command line");
   auto cmd = std::move(remainder.get_mutable_as<std::string>(0));
   vector<string> xs;
   remainder.drop(1).extract([&](string& x) { xs.emplace_back(std::move(x)); });
   auto hosts = read_hostfile(hostfile);
   if (hosts.empty())
-    return cerr << "no valid entry in hostfile" << endl, 1;
+    RETURN_WITH_ERROR("no valid entry in hostfile");
   actor_system system{cfg};
   auto master = hosts.front();
   hosts.erase(hosts.begin());

@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -29,11 +29,14 @@
 #include <unordered_map>
 
 #include "caf/fwd.hpp"
+#include "caf/stream.hpp"
+#include "caf/thread_hook.hpp"
 #include "caf/config_value.hpp"
 #include "caf/config_option.hpp"
 #include "caf/actor_factory.hpp"
 #include "caf/is_typed_actor.hpp"
 #include "caf/type_erased_value.hpp"
+#include "caf/named_actor_config.hpp"
 
 #include "caf/detail/safe_equal.hpp"
 #include "caf/detail/type_traits.hpp"
@@ -49,23 +52,29 @@ public:
 
   using hook_factory_vector = std::vector<hook_factory>;
 
+  using thread_hooks = std::vector<std::unique_ptr<thread_hook>>;
+
+  template <class K, class V>
+  using hash_map = std::unordered_map<K, V>;
+
   using module_factory = std::function<actor_system::module* (actor_system&)>;
 
   using module_factory_vector = std::vector<module_factory>;
 
   using value_factory = std::function<type_erased_value_ptr ()>;
 
-  using value_factory_string_map = std::unordered_map<std::string, value_factory>;
+  using value_factory_string_map = hash_map<std::string, value_factory>;
 
-  using value_factory_rtti_map = std::unordered_map<std::type_index, value_factory>;
+  using value_factory_rtti_map = hash_map<std::type_index, value_factory>;
 
-  using actor_factory_map = std::unordered_map<std::string, actor_factory>;
+  using actor_factory_map = hash_map<std::string, actor_factory>;
 
-  using portable_name_map = std::unordered_map<std::type_index, std::string>;
+  using portable_name_map = hash_map<std::type_index, std::string>;
 
-  using error_renderer = std::function<std::string (uint8_t, atom_value, const message&)>;
+  using error_renderer = std::function<std::string (uint8_t, atom_value,
+                                                    const message&)>;
 
-  using error_renderer_map = std::unordered_map<atom_value, error_renderer>;
+  using error_renderer_map = hash_map<atom_value, error_renderer>;
 
   using option_ptr = std::unique_ptr<config_option>;
 
@@ -76,6 +85,8 @@ public:
   using group_module_factory_vector = std::vector<group_module_factory>;
 
   // -- nested classes ---------------------------------------------------------
+
+  using named_actor_config_map = hash_map<std::string, named_actor_config>;
 
   class opt_group {
   public:
@@ -98,7 +109,7 @@ public:
 
   actor_system_config();
 
-  actor_system_config(actor_system_config&&) = default;
+  actor_system_config(actor_system_config&&);
 
   actor_system_config(const actor_system_config&) = delete;
   actor_system_config& operator=(const actor_system_config&) = delete;
@@ -107,18 +118,18 @@ public:
 
   /// Parses `args` as tuple of strings containing CLI options
   /// and `ini_stream` as INI formatted input stream.
-  actor_system_config& parse(message& args, std::istream& ini_stream);
+  actor_system_config& parse(message& args, std::istream& ini);
 
   /// Parses the CLI options `{argc, argv}` and
   /// `ini_stream` as INI formatted input stream.
-  actor_system_config& parse(int argc, char** argv, std::istream& ini_stream);
+  actor_system_config& parse(int argc, char** argv, std::istream& ini);
 
   /// Parses the CLI options `{argc, argv}` and
   /// tries to open `config_file_name` as INI formatted config file.
   /// The parsers tries to open `caf-application.ini` if `config_file_name`
   /// is `nullptr`.
   actor_system_config& parse(int argc, char** argv,
-                             const char* config_file_name = nullptr);
+                             const char* ini_file_cstr = nullptr);
 
   /// Allows other nodes to spawn actors created by `fun`
   /// dynamically by using `name` as identifier.
@@ -156,18 +167,22 @@ public:
                   || (std::is_default_constructible<T>::value
                       && std::is_copy_constructible<T>::value),
                   "T must provide default and copy constructors");
-    static_assert(detail::is_serializable<T>::value, "T must be serializable");
-    type_names_by_rtti.emplace(std::type_index(typeid(T)), name);
-    value_factories_by_name.emplace(std::move(name), &make_type_erased_value<T>);
-    value_factories_by_rtti.emplace(std::type_index(typeid(T)),
-                                     &make_type_erased_value<T>);
+    std::string stream_name = "stream<";
+    stream_name += name;
+    stream_name += ">";
+    add_message_type_impl<stream<T>>(std::move(stream_name));
+    std::string vec_name = "std::vector<";
+    vec_name += name;
+    vec_name += ">";
+    add_message_type_impl<std::vector<T>>(std::move(vec_name));
+    add_message_type_impl<T>(std::move(name));
     return *this;
   }
 
   /// Enables the actor system to convert errors of this error category
   /// to human-readable strings via `renderer`.
-  actor_system_config& add_error_category(atom_value category,
-                                          error_renderer renderer);
+  actor_system_config& add_error_category(atom_value x,
+                                          error_renderer y);
 
   /// Enables the actor system to convert errors of this error category
   /// to human-readable strings via `to_string(T)`.
@@ -212,6 +227,13 @@ public:
     });
   }
 
+  /// Adds a hook type to the scheduler.
+  template <class Hook, class... Ts>
+  actor_system_config& add_thread_hook(Ts&&... ts) {
+    thread_hooks_.emplace_back(new Hook(std::forward<Ts>(ts)...));
+    return *this;
+  }
+
   /// Stores whether the help text for this config object was
   /// printed. If set to `true`, the application should not use
   /// this config object to initialize an `actor_system` and
@@ -232,7 +254,7 @@ public:
   message args_remainder;
 
   /// Sets a config by using its INI name `config_name` to `config_value`.
-  actor_system_config& set(const char* config_name, config_value config_value);
+  actor_system_config& set(const char* cn, config_value cv);
 
   // -- config parameters of the scheduler -------------------------------------
   atom_value scheduler_policy;
@@ -254,10 +276,18 @@ public:
 
   // -- config parameters for the logger ---------------------------------------
 
-  std::string logger_filename;
-  atom_value logger_verbosity;
+  std::string logger_file_name;
+  std::string logger_file_format;
   atom_value logger_console;
-  std::string logger_filter;
+  std::string logger_console_format;
+  std::string logger_component_filter;
+  atom_value logger_verbosity;
+  bool logger_inline_output;
+
+  // -- backward compatibility -------------------------------------------------
+
+  std::string& logger_filename CAF_DEPRECATED;
+  std::string& logger_filter CAF_DEPRECATED;
 
   // -- config parameters of the middleman -------------------------------------
 
@@ -266,10 +296,20 @@ public:
   bool middleman_enable_automatic_connections;
   size_t middleman_max_consecutive_reads;
   size_t middleman_heartbeat_interval;
+  bool middleman_detach_utility_actors;
+  bool middleman_detach_multiplexer;
 
   // -- config parameters of the OpenCL module ---------------------------------
 
   std::string opencl_device_ids;
+
+  // -- config parameters of the OpenSSL module ---------------------------------
+
+  std::string openssl_certificate;
+  std::string openssl_key;
+  std::string openssl_passphrase;
+  std::string openssl_capath;
+  std::string openssl_cafile;
 
   // -- factories --------------------------------------------------------------
 
@@ -280,6 +320,10 @@ public:
   hook_factory_vector hook_factories;
   group_module_factory_vector group_module_factories;
 
+  // -- hooks ------------------------------------------------------------------
+
+  thread_hooks thread_hooks_;
+
   // -- run-time type information ----------------------------------------------
 
   portable_name_map type_names_by_rtti;
@@ -288,7 +332,20 @@ public:
 
   error_renderer_map error_renderers;
 
+  // -- convenience functions --------------------------------------------------
+
+  template <class F>
+  void for_each_option(F f) const {
+    const option_vector* all_options[] = { &options_, &custom_options_ };
+    for (auto& opt_vec : all_options)
+      for (auto& opt : *opt_vec)
+        f(*opt);
+  }
+
   // -- utility for caf-run ----------------------------------------------------
+
+  // Config parameter for individual actor types.
+  named_actor_config_map named_actor_configs;
 
   int (*slave_mode_fun)(actor_system&, const actor_system_config&);
 
@@ -298,6 +355,14 @@ protected:
   option_vector custom_options_;
 
 private:
+  template <class T>
+  void add_message_type_impl(std::string name) {
+    type_names_by_rtti.emplace(std::type_index(typeid(T)), name);
+    value_factories_by_name.emplace(std::move(name), &make_type_erased_value<T>);
+    value_factories_by_rtti.emplace(std::type_index(typeid(T)),
+                                     &make_type_erased_value<T>);
+  }
+
   static std::string render_sec(uint8_t, atom_value, const message&);
 
   static std::string render_exit_reason(uint8_t, atom_value, const message&);

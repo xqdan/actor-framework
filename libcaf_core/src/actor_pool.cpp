@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -104,7 +104,7 @@ actor actor_pool::make(execution_unit* eu, policy pol) {
 }
 
 actor actor_pool::make(execution_unit* eu, size_t num_workers,
-                       factory fac, policy pol) {
+                       const factory& fac, policy pol) {
   auto res = make(eu, std::move(pol));
   auto ptr = static_cast<actor_pool*>(actor_cast<abstract_actor*>(res));
   auto res_addr = ptr->address();
@@ -183,8 +183,21 @@ bool actor_pool::filter(upgrade_lock<detail::shared_spinlock>& guard,
     auto last = workers_.end();
     auto i = std::find(workers_.begin(), last, what);
     if (i != last) {
+      default_attachable::observe_token tk{address(),
+                                           default_attachable::monitor};
+      what->detach(tk);
       workers_.erase(i);
     }
+    return true;
+  }
+  if (content.match_elements<sys_atom, delete_atom>()) {
+    upgrade_to_unique_lock<detail::shared_spinlock> unique_guard{guard};
+    for (auto& worker : workers_) {
+      default_attachable::observe_token tk{address(),
+                                           default_attachable::monitor};
+      worker->detach(tk);
+    }
+    workers_.clear();
     return true;
   }
   if (content.match_elements<sys_atom, get_atom>()) {

@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -25,11 +25,13 @@
 #include "caf/to_string.hpp"
 #include "caf/event_based_actor.hpp"
 #include "caf/actor_system_config.hpp"
+#include "caf/raw_event_based_actor.hpp"
 
 #include "caf/policy/work_sharing.hpp"
 #include "caf/policy/work_stealing.hpp"
 
 #include "caf/scheduler/coordinator.hpp"
+#include "caf/scheduler/test_coordinator.hpp"
 #include "caf/scheduler/abstract_coordinator.hpp"
 #include "caf/scheduler/profiled_coordinator.hpp"
 
@@ -46,13 +48,13 @@ struct kvstate {
   std::unordered_map<strong_actor_ptr, topic_set> subscribers;
   static const char* name;
   template <class Processor>
-  friend void serialize(Processor& proc, kvstate& x, const unsigned int) {
+  friend void serialize(Processor& proc, kvstate& x, unsigned int) {
     proc & x.data;
     proc & x.subscribers;
   }
 };
 
-const char* kvstate::name = "caf.config_server";
+const char* kvstate::name = "config_server";
 
 behavior config_serv_impl(stateful_actor<kvstate>* self) {
   CAF_LOG_TRACE("");
@@ -144,7 +146,19 @@ behavior config_serv_impl(stateful_actor<kvstate>* self) {
   };
 }
 
-behavior spawn_serv_impl(event_based_actor* self) {
+// -- spawn server -------------------------------------------------------------
+
+// A spawn server allows users to spawn actors dynamically with a name and a
+// message containing the data for initialization. By accessing the spawn server
+// on another node, users can spwan actors remotely.
+
+struct spawn_serv_state {
+  static const char* name;
+};
+
+const char* spawn_serv_state::name = "spawn_server";
+
+behavior spawn_serv_impl(stateful_actor<spawn_serv_state>* self) {
   CAF_LOG_TRACE("");
   return {
     [=](spawn_atom, const std::string& name,
@@ -156,6 +170,20 @@ behavior spawn_serv_impl(event_based_actor* self) {
     }
   };
 }
+
+// -- stream server ------------------------------------------------------------
+
+// The stream server acts as a man-in-the-middle for all streams that cross the
+// network. It manages any number of unrelated streams by placing itself and the
+// stream server on the next remote node into the pipeline.
+
+// Outgoing messages are buffered in FIFO order to ensure fairness. However, the
+// stream server uses five different FIFO queues: on for each priority level.
+// A high priority grants more network bandwidth.
+
+// Note that stream servers do not actively take part in the streams they
+// process. Batch messages and ACKs are treated equally. Open, close, and error
+// messages are evaluated to add and remove state as needed.
 
 class dropping_execution_unit : public execution_unit {
 public:
@@ -178,35 +206,33 @@ actor_system::module::~module() {
 actor_system::actor_system(actor_system_config& cfg)
     : ids_(0),
       types_(*this),
-      logger_(*this),
+      logger_(new caf::logger(*this), false),
       registry_(*this),
       groups_(*this),
-      middleman_(nullptr),
       dummy_execution_unit_(this),
       await_actors_before_shutdown_(true),
       detached(0),
-      cfg_(cfg) {
+      cfg_(cfg),
+      logger_dtor_done_(false) {
   CAF_SET_LOGGER_SYS(this);
+  for (auto& hook : cfg.thread_hooks_)
+    hook->init(*this);
   for (auto& f : cfg.module_factories) {
     auto mod_ptr = f(*this);
     modules_[mod_ptr->id()].reset(mod_ptr);
   }
-  auto& mmptr = modules_[module::middleman];
-  if (mmptr)
-    middleman_ = reinterpret_cast<io::middleman*>(mmptr->subtype_ptr());
-  auto& clptr = modules_[module::opencl_manager];
-  if (clptr)
-    opencl_manager_ = reinterpret_cast<opencl::manager*>(clptr->subtype_ptr());
   auto& sched = modules_[module::scheduler];
+  using test = scheduler::test_coordinator;
   using share = scheduler::coordinator<policy::work_sharing>;
   using steal = scheduler::coordinator<policy::work_stealing>;
-  using profiled_share = scheduler::profiled_coordinator<policy::work_sharing>;
-  using profiled_steal = scheduler::profiled_coordinator<policy::work_stealing>;
+  using profiled_share = scheduler::profiled_coordinator<policy::profiled<policy::work_sharing>>;
+  using profiled_steal = scheduler::profiled_coordinator<policy::profiled<policy::work_stealing>>;
   // set scheduler only if not explicitly loaded by user
   if (!sched) {
     enum sched_conf {
       stealing          = 0x0001,
       sharing           = 0x0002,
+      testing           = 0x0003,
       profiled          = 0x0100,
       profiled_stealing = 0x0101,
       profiled_sharing  = 0x0102
@@ -214,6 +240,8 @@ actor_system::actor_system(actor_system_config& cfg)
     sched_conf sc = stealing;
     if (cfg.scheduler_policy == atom("sharing"))
       sc = sharing;
+    else if (cfg.scheduler_policy == atom("testing"))
+      sc = testing;
     else if (cfg.scheduler_policy != atom("stealing"))
       std::cerr << "[WARNING] " << deep_to_string(cfg.scheduler_policy)
                 << " is an unrecognized scheduler pollicy, "
@@ -234,41 +262,45 @@ actor_system::actor_system(actor_system_config& cfg)
       case profiled_sharing:
         sched.reset(new profiled_share(*this));
         break;
+      case testing:
+        sched.reset(new test(*this));
     }
   }
   // initialize state for each module and give each module the opportunity
   // to influence the system configuration, e.g., by adding more types
+  logger_->init(cfg);
+  CAF_SET_LOGGER_SYS(this);
   for (auto& mod : modules_)
     if (mod)
       mod->init(cfg);
   groups_.init(cfg);
-  // start logger before spawning actors (since that uses the logger)
-  logger_.start();
   // spawn config and spawn servers (lazily to not access the scheduler yet)
   static constexpr auto Flags = hidden + lazy_init;
-  spawn_serv_ = actor_cast<strong_actor_ptr>(spawn<Flags>(spawn_serv_impl));
-  config_serv_ = actor_cast<strong_actor_ptr>(spawn<Flags>(config_serv_impl));
+  spawn_serv(actor_cast<strong_actor_ptr>(spawn<Flags>(spawn_serv_impl)));
+  config_serv(actor_cast<strong_actor_ptr>(spawn<Flags>(config_serv_impl)));
   // fire up remaining modules
   registry_.start();
-  registry_.put(atom("SpawnServ"), spawn_serv_);
-  registry_.put(atom("ConfigServ"), config_serv_);
+  registry_.put(atom("SpawnServ"), spawn_serv());
+  registry_.put(atom("ConfigServ"), config_serv());
   for (auto& mod : modules_)
     if (mod)
       mod->start();
   groups_.start();
+  logger_->start();
 }
 
 actor_system::~actor_system() {
+  CAF_LOG_DEBUG("shutdown actor system");
   if (await_actors_before_shutdown_)
     await_all_actors_done();
-  // shutdown system-level servers
-  anon_send_exit(spawn_serv_, exit_reason::user_shutdown);
-  anon_send_exit(config_serv_, exit_reason::user_shutdown);
-  // release memory as soon as possible
-  spawn_serv_ = nullptr;
-  config_serv_ = nullptr;
+  // shutdown internal actors
+  for (auto& x : internal_actors_) {
+    anon_send_exit(x, exit_reason::user_shutdown);
+    x = nullptr;
+  }
   registry_.erase(atom("SpawnServ"));
   registry_.erase(atom("ConfigServ"));
+  registry_.erase(atom("StreamServ"));
   // group module is the first one, relies on MM
   groups_.stop();
   // stop modules in reverse order
@@ -277,8 +309,12 @@ actor_system::~actor_system() {
       (*i)->stop();
   await_detached_threads();
   registry_.stop();
-  logger_.stop();
+  // reset logger and wait until dtor was called
   CAF_SET_LOGGER_SYS(nullptr);
+  logger_.reset();
+  std::unique_lock<std::mutex> guard{logger_dtor_mtx_};
+  while (!logger_dtor_done_)
+    logger_dtor_cv_.wait(guard);
 }
 
 /// Returns the host-local identifier for this system.
@@ -293,7 +329,7 @@ scheduler::abstract_coordinator& actor_system::scheduler() {
 }
 
 caf::logger& actor_system::logger() {
-  return logger_;
+  return *logger_;
 }
 
 actor_registry& actor_system::registry() {
@@ -319,23 +355,36 @@ group_manager& actor_system::groups() {
 }
 
 bool actor_system::has_middleman() const {
-  return middleman_ != nullptr;
+  return modules_[module::middleman] != nullptr;
 }
 
 io::middleman& actor_system::middleman() {
-  if (!middleman_)
+  auto& clptr = modules_[module::middleman];
+  if (!clptr)
     CAF_RAISE_ERROR("cannot access middleman: module not loaded");
-  return *middleman_;
+  return *reinterpret_cast<io::middleman*>(clptr->subtype_ptr());
 }
 
 bool actor_system::has_opencl_manager() const {
-  return opencl_manager_ != nullptr;
+  return modules_[module::opencl_manager] != nullptr;
 }
 
 opencl::manager& actor_system::opencl_manager() const {
-  if (!opencl_manager_)
+  auto& clptr = modules_[module::opencl_manager];
+  if (!clptr)
     CAF_RAISE_ERROR("cannot access opencl manager: module not loaded");
-  return *opencl_manager_;
+  return *reinterpret_cast<opencl::manager*>(clptr->subtype_ptr());
+}
+
+bool actor_system::has_openssl_manager() const {
+  return modules_[module::openssl_manager] != nullptr;
+}
+
+openssl::manager& actor_system::openssl_manager() const {
+  auto& clptr = modules_[module::openssl_manager];
+  if (!clptr)
+    CAF_RAISE_ERROR("cannot access openssl manager: module not loaded");
+  return *reinterpret_cast<openssl::manager*>(clptr->subtype_ptr());
 }
 
 scoped_execution_unit* actor_system::dummy_execution_unit() {
@@ -370,6 +419,16 @@ void actor_system::await_detached_threads() {
     detached_cv.wait(guard);
 }
 
+void actor_system::thread_started() {
+  for (auto& hook : cfg_.thread_hooks_)
+    hook->thread_started();
+}
+
+void actor_system::thread_terminates() {
+  for (auto& hook : cfg_.thread_hooks_)
+    hook->thread_terminates();
+}
+
 expected<strong_actor_ptr>
 actor_system::dyn_spawn_impl(const std::string& name, message& args,
                              execution_unit* ctx, bool check_interface,
@@ -382,7 +441,7 @@ actor_system::dyn_spawn_impl(const std::string& name, message& args,
   auto i = fs.find(name);
   if (i == fs.end())
     return sec::unknown_type;
-  actor_config cfg{ctx ? ctx : &dummy_execution_unit_};
+  actor_config cfg{ctx != nullptr ? ctx : &dummy_execution_unit_};
   auto res = i->second(cfg, args);
   if (!res.first)
     return sec::cannot_spawn_actor_from_arguments;

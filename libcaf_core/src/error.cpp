@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -46,12 +46,13 @@ error::error(none_t) noexcept : data_(nullptr) {
 }
 
 error::error(error&& x) noexcept : data_(x.data_) {
-  if (data_)
+  if (data_ != nullptr)
     x.data_ = nullptr;
 }
 
 error& error::operator=(error&& x) noexcept {
-  std::swap(data_, x.data_);
+  if (this != &x)
+    std::swap(data_, x.data_);
   return *this;
 }
 
@@ -60,8 +61,10 @@ error::error(const error& x) : data_(x ? new data(*x.data_) : nullptr) {
 }
 
 error& error::operator=(const error& x) {
+  if (this == &x)
+    return *this;
   if (x) {
-    if (!data_)
+    if (data_ == nullptr)
       data_ = new data(*x.data_);
     else
       *data_ = *x.data_;
@@ -118,7 +121,7 @@ int error::compare(const error& x) const noexcept {
 int error::compare(uint8_t x, atom_value y) const noexcept {
   uint8_t mx;
   atom_value my;
-  if (data_) {
+  if (data_ != nullptr) {
     mx = data_->code;
     my = data_->category;
   } else {
@@ -143,7 +146,7 @@ message& error::context() noexcept {
 }
 
 void error::clear() noexcept {
-  if (data_) {
+  if (data_ != nullptr) {
     delete data_;
     data_ = nullptr;
   }
@@ -151,9 +154,9 @@ void error::clear() noexcept {
 
 // -- inspection support -----------------------------------------------------
 
-error error::apply(inspect_fun f) {
+error error::apply(const inspect_fun& f) {
   data tmp{0, atom(""), message{}};
-  data& ref = data_ ? *data_ : tmp;
+  data& ref = data_ != nullptr ? *data_ : tmp;
   auto result = f(meta::type_name("error"), ref.code, ref.category,
                   meta::omittable_if_empty(), ref.context);
   if (ref.code == 0)

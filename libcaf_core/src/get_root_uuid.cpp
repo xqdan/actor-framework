@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -50,7 +50,7 @@ std::string get_root_uuid() {
   // fetch hd serial
   std::string uuid;
   FILE* get_uuid_cmd = popen(s_get_uuid, "r");
-  while (fgets(cbuf, 100, get_uuid_cmd) != 0) {
+  while (fgets(cbuf, 100, get_uuid_cmd) != nullptr) {
     uuid += cbuf;
   }
   pclose(get_uuid_cmd);

@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -104,7 +104,7 @@ public:
 
   /// Checks whether the type of the stored value at position `pos`
   /// matches type number `n` and run-time type information `p`.
-  bool matches(size_t pos, uint16_t n, const std::type_info* p) const  noexcept;
+  bool matches(size_t pos, uint16_t nr, const std::type_info* ptr) const  noexcept;
 
   // -- convenience functions --------------------------------------------------
 
@@ -122,6 +122,32 @@ public:
   template <class T>
   const T& get_as(size_t pos) const {
     return *reinterpret_cast<const T*>(get(pos));
+  }
+
+  template <class T, size_t Pos>
+  struct typed_index {};
+
+  template <class T, size_t Pos>
+  static constexpr typed_index<T, Pos> make_typed_index() {
+    return {};
+  }
+
+  template <class T, size_t Pos>
+  const T& get_as(typed_index<T, Pos>) const {
+    return *reinterpret_cast<const T*>(get(Pos));
+  }
+
+  template <class... Ts, long... Is>
+  std::tuple<const Ts&...> get_as_tuple(detail::type_list<Ts...>,
+                                        detail::int_list<Is...>) const {
+    return std::tuple<const Ts&...>{get_as<Ts>(Is)...};
+    //return get_as<Ts>(Is)...;//(make_typed_index<Ts, Is>())...;
+  }
+
+  template <class... Ts>
+  std::tuple<const Ts&...> get_as_tuple() const {
+    return get_as_tuple(detail::type_list<Ts...>{},
+                        typename detail::il_range<0, sizeof...(Ts)>::type{});
   }
 
   /// Convenience function for `*reinterpret_cast<T*>(get_mutable())`.
@@ -210,7 +236,7 @@ class empty_type_erased_tuple : public type_erased_tuple {
 public:
   empty_type_erased_tuple() = default;
 
-  ~empty_type_erased_tuple();
+  ~empty_type_erased_tuple() override;
 
   void* get_mutable(size_t pos) override;
 

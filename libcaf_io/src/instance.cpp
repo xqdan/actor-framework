@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -63,7 +63,8 @@ connection_state instance::handle(execution_unit* ctx,
   if (is_payload) {
     payload = &dm.buf;
     if (payload->size() != hdr.payload_len) {
-      CAF_LOG_WARNING("received invalid payload");
+      CAF_LOG_WARNING("received invalid payload, expected"
+                      << hdr.payload_len << "bytes, got" << payload->size());
       return err();
     }
   } else {
@@ -88,7 +89,7 @@ connection_state instance::handle(execution_unit* ctx,
       auto e = bs(hdr);
       if (e)
         return err();
-      if (payload)
+      if (payload != nullptr)
         bs.apply_raw(payload->size(), payload->data());
       tbl_.flush(*path);
       notify<hook::message_forwarded>(hdr, payload);
@@ -139,14 +140,14 @@ connection_state instance::handle(execution_unit* ctx,
       if (hdr.source_node == this_node_) {
         CAF_LOG_INFO("close connection to self immediately");
         callee_.finalize_handshake(hdr.source_node, aid, sigs);
-        return err();
+        return close_connection;
       }
       // close this connection if we already have a direct connection
       if (tbl_.lookup_direct(hdr.source_node) != invalid_connection_handle) {
         CAF_LOG_INFO("close connection since we already have a "
                      "direct connection: " << CAF_ARG(hdr.source_node));
         callee_.finalize_handshake(hdr.source_node, aid, sigs);
-        return err();
+        return close_connection;
       }
       // add direct route to this node and remove any indirect entry
       CAF_LOG_INFO("new direct connection:" << CAF_ARG(hdr.source_node));
@@ -218,11 +219,11 @@ connection_state instance::handle(execution_unit* ctx,
       CAF_LOG_DEBUG(CAF_ARG(forwarding_stack) << CAF_ARG(msg));
       if (hdr.has(header::named_receiver_flag))
         callee_.deliver(hdr.source_node, hdr.source_actor, receiver_name,
-                        message_id::from_integer_value(hdr.operation_data),
+                        message_id::make(hdr.operation_data),
                         forwarding_stack, msg);
       else
         callee_.deliver(hdr.source_node, hdr.source_actor, hdr.dest_actor,
-                        message_id::from_integer_value(hdr.operation_data),
+                        message_id::make(hdr.operation_data),
                         forwarding_stack, msg);
       break;
     }
@@ -237,7 +238,8 @@ connection_state instance::handle(execution_unit* ctx,
       auto e = bd(fail_state);
       if (e)
         return err();
-      callee_.kill_proxy(hdr.source_node, hdr.source_actor, fail_state);
+      callee_.proxies().erase(hdr.source_node, hdr.source_actor,
+                              std::move(fail_state));
       break;
     }
     case message_type::heartbeat: {
@@ -259,18 +261,6 @@ void instance::handle_heartbeat(execution_unit* ctx) {
     write_heartbeat(ctx, tbl_.parent_->wr_buf(kvp.first), kvp.second);
     tbl_.parent_->flush(kvp.first);
   }
-}
-
-void instance::handle_node_shutdown(const node_id& affected_node) {
-  CAF_LOG_TRACE(CAF_ARG(affected_node));
-  if (affected_node == none)
-    return;
-  CAF_LOG_INFO("lost direct connection:" << CAF_ARG(affected_node));
-  auto cb = make_callback([&](const node_id& nid) -> error {
-    callee_.purge_state(nid);
-    return none;
-  });
-  tbl_.erase(affected_node, cb);
 }
 
 optional<routing_table::route> instance::lookup(const node_id& target) {
@@ -307,7 +297,7 @@ size_t instance::remove_published_actor(uint16_t port,
   auto i = published_actors_.find(port);
   if (i == published_actors_.end())
     return 0;
-  if (cb)
+  if (cb != nullptr)
     (*cb)(i->second.first, i->first);
   published_actors_.erase(i);
   return 1;
@@ -321,7 +311,7 @@ size_t instance::remove_published_actor(const actor_addr& whom,
   if (port != 0) {
     auto i = published_actors_.find(port);
     if (i != published_actors_.end() && i->second.first == whom) {
-      if (cb)
+      if (cb != nullptr)
         (*cb)(i->second.first, port);
       published_actors_.erase(i);
       result = 1;
@@ -330,7 +320,7 @@ size_t instance::remove_published_actor(const actor_addr& whom,
     auto i = published_actors_.begin();
     while (i != published_actors_.end()) {
       if (i->second.first == whom) {
-        if (cb)
+        if (cb != nullptr)
           (*cb)(i->second.first, i->first);
         i = published_actors_.erase(i);
         ++result;
@@ -371,7 +361,7 @@ void instance::write(execution_unit* ctx, buffer_type& buf,
                      header& hdr, payload_writer* pw) {
   CAF_LOG_TRACE(CAF_ARG(hdr));
   error err;
-  if (pw) {
+  if (pw != nullptr) {
     auto pos = buf.size();
     // write payload first (skip first 72 bytes and write header later)
     char placeholder[basp::header_size];
@@ -408,18 +398,17 @@ void instance::write_server_handshake(execution_unit* ctx,
     auto e = sink(const_cast<std::string&>(ref));
     if (e)
       return e;
-    if (pa) {
+    if (pa != nullptr) {
       auto i = pa->first ? pa->first->id() : invalid_actor_id;
       return sink(i, pa->second);
-    } else {
-      auto aid = invalid_actor_id;
-      std::set<std::string> tmp;
-      return sink(aid, tmp);
     }
+    auto aid = invalid_actor_id;
+    std::set<std::string> tmp;
+    return sink(aid, tmp);
   });
   header hdr{message_type::server_handshake, 0, 0, version,
              this_node_, none,
-             pa && pa->first ? pa->first->id() : invalid_actor_id,
+             (pa != nullptr) && pa->first ? pa->first->id() : invalid_actor_id,
              invalid_actor_id};
   write(ctx, out_buf, hdr, &writer);
 }

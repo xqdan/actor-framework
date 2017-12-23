@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -32,30 +32,24 @@ class forwarding_actor_proxy : public actor_proxy {
 public:
   using forwarding_stack = std::vector<strong_actor_ptr>;
 
-  forwarding_actor_proxy(actor_config& cfg, actor parent);
+  forwarding_actor_proxy(actor_config& cfg, actor dest);
 
-  ~forwarding_actor_proxy();
+  ~forwarding_actor_proxy() override;
 
-  void enqueue(mailbox_element_ptr what, execution_unit* host) override;
+  void enqueue(mailbox_element_ptr what, execution_unit* context) override;
 
-  bool link_impl(linking_operation op, abstract_actor* other) override;
+  bool add_backlink(abstract_actor* x) override;
 
-  void local_link_to(abstract_actor* other) override;
+  bool remove_backlink(abstract_actor* x) override;
 
-  void local_unlink_from(abstract_actor* other) override;
-
-  void kill_proxy(execution_unit* ctx, error reason) override;
-
-  actor manager() const;
-
-  void manager(actor new_manager);
+  void kill_proxy(execution_unit* ctx, error rsn) override;
 
 private:
   void forward_msg(strong_actor_ptr sender, message_id mid, message msg,
-                   const forwarding_stack* fwd_stack = nullptr);
+                   const forwarding_stack* fwd = nullptr);
 
-  mutable detail::shared_spinlock manager_mtx_;
-  actor manager_;
+  mutable detail::shared_spinlock mtx_;
+  actor broker_;
 };
 
 } // namespace caf

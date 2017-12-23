@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -16,6 +16,8 @@
  * http://opensource.org/licenses/BSD-3-Clause and                            *
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
+
+#include "caf/io/middleman.hpp"
 
 #include <tuple>
 #include <cerrno>
@@ -35,15 +37,17 @@
 #include "caf/make_counted.hpp"
 #include "caf/scoped_actor.hpp"
 #include "caf/function_view.hpp"
+#include "caf/actor_registry.hpp"
 #include "caf/event_based_actor.hpp"
 #include "caf/actor_system_config.hpp"
+#include "caf/raw_event_based_actor.hpp"
 #include "caf/typed_event_based_actor.hpp"
 
-#include "caf/io/middleman.hpp"
 #include "caf/io/basp_broker.hpp"
 #include "caf/io/system_messages.hpp"
 
 #include "caf/io/network/interfaces.hpp"
+#include "caf/io/network/test_multiplexer.hpp"
 #include "caf/io/network/default_multiplexer.hpp"
 
 #include "caf/scheduler/abstract_coordinator.hpp"
@@ -51,7 +55,6 @@
 #include "caf/detail/ripemd_160.hpp"
 #include "caf/detail/safe_equal.hpp"
 #include "caf/detail/get_root_uuid.hpp"
-#include "caf/actor_registry.hpp"
 #include "caf/detail/get_mac_addresses.hpp"
 
 #ifdef CAF_USE_ASIO
@@ -67,38 +70,36 @@
 namespace caf {
 namespace io {
 
+namespace {
+
+template <class T>
+class mm_impl : public middleman {
+public:
+  mm_impl(actor_system& ref) : middleman(ref), backend_(&ref) {
+    // nop
+  }
+
+  network::multiplexer& backend() override {
+    return backend_;
+  }
+
+private:
+  T backend_;
+};
+
+} // namespace <anonymous>
+
 actor_system::module* middleman::make(actor_system& sys, detail::type_list<>) {
-  class impl : public middleman {
-  public:
-    impl(actor_system& ref) : middleman(ref), backend_(&ref) {
-      // nop
-    }
-
-    network::multiplexer& backend() override {
-      return backend_;
-    }
-
-  private:
-    network::default_multiplexer backend_;
-  };
+  switch (atom_uint(sys.config().middleman_network_backend)) {
 # ifdef CAF_USE_ASIO
-  class asio_impl : public middleman {
-  public:
-    asio_impl(actor_system& ref) : middleman(ref), backend_(&ref) {
-      // nop
-    }
-
-    network::multiplexer& backend() override {
-      return backend_;
-    }
-
-  private:
-    network::asio_multiplexer backend_;
-  };
-  if (sys.config().middleman_network_backend == atom("asio"))
-    return new asio_impl(sys);
+    case atom_uint(atom("asio")):
+      return new mm_impl<network::asio_multiplexer>(sys);
 # endif // CAF_USE_ASIO
-  return new impl(sys);
+    case atom_uint(atom("testing")):
+      return new mm_impl<network::test_multiplexer>(sys);
+    default:
+      return new mm_impl<network::default_multiplexer>(sys);
+  }
 }
 
 middleman::middleman(actor_system& sys) : system_(sys) {
@@ -115,12 +116,12 @@ expected<strong_actor_ptr> middleman::remote_spawn_impl(const node_id& nid,
            std::move(args), std::move(s));
 }
 
-expected<uint16_t> middleman::open(uint16_t port, const char* cstr, bool ru) {
+expected<uint16_t> middleman::open(uint16_t port, const char* in, bool reuse) {
   std::string str;
-  if (cstr != nullptr)
-    str = cstr;
+  if (in != nullptr)
+    str = in;
   auto f = make_function_view(actor_handle());
-  return f(open_atom::value, port, std::move(str), ru);
+  return f(open_atom::value, port, std::move(str), reuse);
 }
 
 expected<void> middleman::close(uint16_t port) {
@@ -143,14 +144,14 @@ expected<uint16_t> middleman::publish(const strong_actor_ptr& whom,
   if (!whom)
     return sec::cannot_publish_invalid_actor;
   std::string in;
-  if (cstr)
+  if (cstr != nullptr)
     in = cstr;
   auto f = make_function_view(actor_handle());
   return f(publish_atom::value, port, std::move(whom), std::move(sigs), in, ru);
 }
 
 expected<uint16_t> middleman::publish_local_groups(uint16_t port,
-                                                   const char* in) {
+                                                   const char* in, bool reuse) {
   CAF_LOG_TRACE(CAF_ARG(port) << CAF_ARG(in));
   auto group_nameserver = [](event_based_actor* self) -> behavior {
     return {
@@ -160,11 +161,10 @@ expected<uint16_t> middleman::publish_local_groups(uint16_t port,
     };
   };
   auto gn = system().spawn<hidden>(group_nameserver);
-  auto result = publish(gn, port, in);
+  auto result = publish(gn, port, in, reuse);
   // link gn to our manager
   if (result)
-    manager_->link_impl(abstract_actor::establish_link_op,
-                        actor_cast<abstract_actor*>(gn));
+    manager_->add_link(actor_cast<abstract_actor*>(gn));
   else
     anon_send_exit(gn, exit_reason::user_shutdown);
   return result;
@@ -251,25 +251,43 @@ strong_actor_ptr middleman::remote_lookup(atom_value name, const node_id& nid) {
 
 void middleman::start() {
   CAF_LOG_TRACE("");
-  // create hooks
+  // Create hooks.
   for (auto& f : system().config().hook_factories)
     hooks_.emplace_back(f(system_));
-  // launch backend
-  backend_supervisor_ = backend().make_supervisor();
+  // Launch backend.
+  if (system_.config().middleman_detach_multiplexer)
+    backend_supervisor_ = backend().make_supervisor();
   if (!backend_supervisor_) {
-    // the only backend that returns a `nullptr` is the `test_multiplexer`
-    // which does not have its own thread but uses the main thread instead
+    // The only backend that returns a `nullptr` is the `test_multiplexer`
+    // which does not have its own thread but uses the main thread instead.
+    // Other backends can set `middleman_detach_multiplexer` to false to
+    // suppress creation of the supervisor.
     backend().thread_id(std::this_thread::get_id());
   } else {
-    thread_ = std::thread{[this] {
+    std::atomic<bool> init_done{false};
+    std::mutex mtx;
+    std::condition_variable cv;
+    thread_ = std::thread{[&,this] {
       CAF_SET_LOGGER_SYS(&system());
+      system().thread_started();
       CAF_LOG_TRACE("");
+      {
+        std::unique_lock<std::mutex> guard{mtx};
+        backend().thread_id(std::this_thread::get_id());
+        init_done = true;
+        cv.notify_one();
+      }
       backend().run();
+      system().thread_terminates();
     }};
-    backend().thread_id(thread_.get_id());
+    std::unique_lock<std::mutex> guard{mtx};
+    while (init_done == false)
+      cv.wait(guard);
   }
+  // Spawn utility actors.
   auto basp = named_broker<basp_broker>(atom("BASP"));
   manager_ = make_middleman_actor(system(), basp);
+  auto hdl = actor_cast<actor>(basp);
 }
 
 void middleman::stop() {
@@ -289,18 +307,27 @@ void middleman::stop() {
       }
     }
   });
-  backend_supervisor_.reset();
-  if (thread_.joinable())
-    thread_.join();
+  if (system_.config().middleman_detach_multiplexer) {
+    backend_supervisor_.reset();
+    if (thread_.joinable())
+      thread_.join();
+  } else {
+    while (backend().try_run_once())
+      ; // nop
+  }
   hooks_.clear();
   named_brokers_.clear();
   scoped_actor self{system(), true};
   self->send_exit(manager_, exit_reason::kill);
-  self->wait_for(manager_);
+  if (system().config().middleman_detach_utility_actors)
+    self->wait_for(manager_);
   destroy(manager_);
 }
 
 void middleman::init(actor_system_config& cfg) {
+  // never detach actors when using the testing multiplexer
+  if (cfg.middleman_network_backend == atom("testing"))
+    cfg.middleman_detach_utility_actors = false;
   // add remote group module to config
   struct remote_groups : group_module {
   public:
@@ -310,15 +337,15 @@ void middleman::init(actor_system_config& cfg) {
       // nop
     }
 
-    void stop() {
+    void stop() override {
       // nop
     }
 
-    expected<group> get(const std::string& group_name) {
+    expected<group> get(const std::string& group_name) override {
       return parent_.remote_group(group_name);
     }
 
-    error load(deserializer&, group&) {
+    error load(deserializer&, group&) override {
       // never called, because we hand out group instances of the local module
       return sec::no_such_group_module;
     }
@@ -337,11 +364,7 @@ void middleman::init(actor_system_config& cfg) {
      .add_message_type<acceptor_closed_msg>("@acceptor_closed_msg")
      .add_message_type<connection_closed_msg>("@connection_closed_msg")
      .add_message_type<accept_handle>("@accept_handle")
-     .add_message_type<acceptor_closed_msg>("@acceptor_closed_msg")
-     .add_message_type<connection_closed_msg>("@connection_closed_msg")
      .add_message_type<connection_handle>("@connection_handle")
-     .add_message_type<new_connection_msg>("@new_connection_msg")
-     .add_message_type<new_data_msg>("@new_data_msg")
      .add_message_type<connection_passivated_msg>("@connection_passivated_msg")
      .add_message_type<acceptor_passivated_msg>("@acceptor_passivated_msg");
   // compute and set ID for this network node

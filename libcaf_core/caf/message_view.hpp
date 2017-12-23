@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -33,6 +33,8 @@ public:
   virtual type_erased_tuple& content() = 0;
 
   virtual message move_content_to_message() = 0;
+
+  virtual message copy_content_to_message() const = 0;
 };
 
 } // namespace caf

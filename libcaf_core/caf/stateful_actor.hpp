@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -46,28 +46,28 @@ public:
         state(state_) {
     if (detail::is_serializable<State>::value)
       this->setf(Base::is_serializable_flag);
+    cr_state(this);
   }
 
-  ~stateful_actor() {
+  ~stateful_actor() override {
     // nop
   }
 
   /// Destroys the state of this actor (no further overriding allowed).
   void on_exit() final {
     CAF_LOG_TRACE("");
-    if (this->getf(Base::is_initialized_flag))
-      state_.~State();
+    state_.~State();
   }
 
   const char* name() const final {
     return get_name(state_);
   }
 
-  error save_state(serializer& sink, const unsigned int version) override {
+  error save_state(serializer& sink, unsigned int version) override {
     return serialize_state(&sink, state, version);
   }
 
-  error load_state(deserializer& source, const unsigned int version) override {
+  error load_state(deserializer& source, unsigned int version) override {
     return serialize_state(&source, state, version);
   }
 
@@ -77,7 +77,6 @@ public:
   /// @cond PRIVATE
 
   void initialize() override {
-    cr_state(this);
     Base::initialize();
   }
 
@@ -85,13 +84,13 @@ public:
 
 private:
   template <class Inspector, class T>
-  auto serialize_state(Inspector* f, T& x, const unsigned int)
+  auto serialize_state(Inspector* f, T& x, unsigned int)
   -> decltype(inspect(*f, x)) {
     return inspect(*f, x);
   }
 
   template <class T>
-  error serialize_state(void*, T&, const unsigned int) {
+  error serialize_state(void*, T&, unsigned int) {
     return sec::invalid_argument;
   }
 

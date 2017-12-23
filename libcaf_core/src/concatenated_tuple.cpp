@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -31,7 +31,7 @@ concatenated_tuple::concatenated_tuple(std::initializer_list<cow_ptr> xs) {
   for (auto& x : xs) {
     if (x) {
       auto dptr = dynamic_cast<const concatenated_tuple*>(x.get());
-      if (dptr) {
+      if (dptr != nullptr) {
         auto& vec = dptr->data_;
         data_.insert(data_.end(), vec.begin(), vec.end());
       } else {

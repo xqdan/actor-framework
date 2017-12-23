@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -95,7 +95,7 @@ public:
   /// Pseudo receive condition modeling a single receive.
   class accept_one_cond : public receive_cond {
   public:
-    virtual ~accept_one_cond();
+    ~accept_one_cond() override;
     bool post() override;
   };
 
@@ -177,9 +177,9 @@ public:
 
   // -- constructors and destructors -------------------------------------------
 
-  blocking_actor(actor_config& sys);
+  blocking_actor(actor_config& cfg);
 
-  ~blocking_actor();
+  ~blocking_actor() override;
 
   // -- overridden functions of abstract_actor ---------------------------------
 

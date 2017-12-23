@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -85,7 +85,8 @@ private:
 namespace { watchdog* s_watchdog; }
 
 void watchdog::start(int secs) {
-  s_watchdog = new watchdog(secs);
+  if (secs > 0)
+    s_watchdog = new watchdog(secs);
 }
 
 void watchdog::stop() {
@@ -108,17 +109,14 @@ size_t test::expected_failures() const {
   return expected_failures_;
 }
 
-void test::pass(std::string msg) {
+void test::pass() {
   ++good_;
-  ::caf::test::logger::instance().massive() << "  " << msg << '\n';
 }
 
-void test::fail(std::string msg, bool expected) {
+void test::fail(bool expected) {
   ++bad_;
-  ::caf::test::logger::instance().massive() << "  " << msg << '\n';
-  if (expected) {
+  if (expected)
     ++expected_failures_;
-  }
 }
 
 const std::string& test::name() const {
@@ -129,11 +127,11 @@ namespace detail {
 
 [[noreturn]] void requirement_failed(const std::string& msg) {
   auto& log = logger::instance();
-  log.error() << engine::color(red) << "     REQUIRED: " << msg
-              << engine::color(reset) << '\n'
-              << "     " << engine::color(blue) << engine::last_check_file()
-              << engine::color(yellow) << ":" << engine::color(cyan)
-              << engine::last_check_line() << engine::color(reset)
+  log.error() << term::red << "     REQUIRED: " << msg
+              << term::reset << '\n'
+              << "     " << term::blue << engine::last_check_file()
+              << term::yellow << ":" << term::cyan
+              << engine::last_check_line() << term::reset
               << detail::fill(engine::last_check_line())
               << "had last successful check" << '\n';
   abort();
@@ -142,12 +140,11 @@ namespace detail {
 const char* fill(size_t line) {
   if (line < 10)
     return "    ";
-  else if (line < 100)
+  if (line < 100)
     return "   ";
-  else if (line < 1000)
+  if (line < 1000)
     return "  ";
-  else
-    return " ";
+  return " ";
 }
 
 void remove_trailing_spaces(std::string& x) {
@@ -156,73 +153,29 @@ void remove_trailing_spaces(std::string& x) {
 
 bool check(test* parent, const char *file, size_t line,
            const char *expr, bool should_fail, bool result) {
-  std::stringstream ss;
+  auto out = logger::instance().massive();
   if (result) {
-    ss << engine::color(green) << "** "
-       << engine::color(blue) << file << engine::color(yellow) << ":"
-       << engine::color(blue) << line << fill(line) << engine::color(reset)
-       << expr;
-    parent->pass(ss.str());
+    out << term::green << "** "
+        << term::blue << file << term::yellow << ":"
+        << term::blue << line << fill(line) << term::reset
+        << expr << '\n';
+    parent->pass();
   } else {
-    ss << engine::color(red) << "!!"
-       << engine::color(blue) << file << engine::color(yellow) << ":"
-       << engine::color(blue) << line << fill(line) << engine::color(reset)
-       << expr;
-    parent->fail(ss.str(), should_fail);
+    out << term::red << "!! "
+        << term::blue << file << term::yellow << ":"
+        << term::blue << line << fill(line) << term::reset
+        << expr << '\n';
+    parent->fail(should_fail);
   }
   return result;
 }
 
 } // namespace detail
 
-logger::stream::stream(logger& l, level lvl) : logger_(l), level_(lvl) {
+logger::stream::stream(logger& parent, logger::level lvl)
+    : parent_(parent),
+      lvl_(lvl) {
   // nop
-}
-
-logger::stream::stream(stream&& other)
-    : logger_(other.logger_)
-    , level_(other.level_) {
-  // ostringstream does have swap since C++11... but not in GCC 4.8.4
-  buf_.str(other.buf_.str());
-}
-
-logger::stream& logger::stream::operator<<(const char& c) {
-  buf_ << c;
-  if (c == '\n') {
-    flush();
-  }
-  return *this;
-}
-
-logger::stream& logger::stream::operator<<(const char* cstr) {
-  if (*cstr == '\0') {
-    return *this;
-  }
-  buf_ << cstr;
-  if (cstr[std::strlen(cstr) - 1] == '\n') {
-    flush();
-  }
-  return *this;
-}
-
-logger::stream& logger::stream::operator<<(const std::string& x) {
-  if (x.empty())
-    return *this;
-  buf_ << x;
-  if (x.back() == '\n')
-    flush();
-  return *this;
-}
-
-std::string logger::stream::str() const {
-  return str_;
-}
-
-void logger::stream::flush() {
-  auto x = buf_.str();
-  buf_.str("");
-  logger_.log(level_, x);
-  str_ += x;
 }
 
 bool logger::init(int lvl_cons, int lvl_file, const std::string& logfile) {
@@ -256,10 +209,19 @@ logger::stream logger::massive() {
   return stream{*this, level::massive};
 }
 
+void logger::disable_colors() {
+  // Disable colors by piping all writes through dummy_.
+  // Since dummy_ is not a TTY, colors are turned off implicitly.
+  dummy_.copyfmt(std::cerr);
+  dummy_.clear(std::cerr.rdstate());
+  dummy_.basic_ios<char>::rdbuf(std::cerr.rdbuf());
+  console_ = &dummy_;
+}
+
 logger::logger()
     : level_console_(level::error),
       level_file_(level::error),
-      console_(std::cerr) {
+      console_(&std::cerr) {
   // nop
 }
 
@@ -293,7 +255,7 @@ void engine::max_runtime(int value) {
 }
 
 void engine::add(const char* cstr_name, std::unique_ptr<test> ptr) {
-  std::string name = cstr_name ? cstr_name : "";
+  std::string name = cstr_name != nullptr ? cstr_name : "";
   auto& suite = instance().suites_[name];
   for (auto& x : suite) {
     if (x->name() == ptr->name()) {
@@ -321,6 +283,8 @@ bool engine::run(bool colorize,
     return false;
   }
   auto& log = logger::instance();
+  if (!colorize)
+    log.disable_colors();
   std::chrono::microseconds runtime{0};
   size_t total_suites = 0;
   size_t total_tests = 0;
@@ -386,11 +350,11 @@ bool engine::run(bool colorize,
       instance().current_test_ = t.get();
       ++tests_ran;
       if (!displayed_header) {
-        log.verbose() << color(yellow) << bar << '\n' << pad << suite_name
-                      << '\n' << bar << color(reset) << "\n\n";
+        log.verbose() << term::yellow << bar << '\n' << pad << suite_name
+                      << '\n' << bar << term::reset << "\n\n";
         displayed_header = true;
       }
-      log.verbose() << color(yellow) << "- " << color(reset) << t->name()
+      log.verbose() << term::yellow << "- " << term::reset << t->name()
                     << '\n';
       auto start = std::chrono::high_resolution_clock::now();
       watchdog::start(max_runtime());
@@ -406,17 +370,17 @@ bool engine::run(bool colorize,
       total_good += good;
       total_bad += bad;
       total_bad_expected += t->expected_failures();
-      log.verbose() << color(yellow) << "  -> " << color(cyan) << good + bad
-                    << color(reset) << " check" << (good + bad > 1 ? "s " : " ")
-                    << "took " << color(cyan) << render(elapsed)
-                    << color(reset) << '\n';
+      log.verbose() << term::yellow << "  -> " << term::cyan << good + bad
+                    << term::reset << " check" << (good + bad > 1 ? "s " : " ")
+                    << "took " << term::cyan << render(elapsed)
+                    << term::reset << '\n';
       if (bad > 0) {
         // concat suite name + test name
         failed_tests.emplace_back(p.first);
         failed_tests.back() += ":";
         failed_tests.back() += t->name();
-        log.verbose() << " (" << color(green) << good << color(reset) << '/'
-                      << color(red) << bad << color(reset) << ")" << '\n';
+        log.verbose() << " (" << term::green << good << term::reset << '/'
+                      << term::red << bad << term::reset << ")" << '\n';
       } else {
         log.verbose() << '\n';
       }
@@ -438,38 +402,34 @@ bool engine::run(bool colorize,
   auto title = std::string{"summary"};
   auto pad = std::string((bar.size() - title.size()) / 2, ' ');
   auto indent = std::string(24, ' ');
-  log.info() << color(cyan) << bar << '\n' << pad << title << '\n' << bar
-             << color(reset) << "\n\n" << indent << "suites:  " << color(yellow)
-             << total_suites << color(reset) << '\n' << indent
-             << "tests:   " << color(yellow) << total_tests << color(reset)
-             << '\n' << indent << "checks:  " << color(yellow)
-             << total_good + total_bad << color(reset);
+  log.info() << term::cyan << bar << '\n' << pad << title << '\n' << bar
+             << term::reset << "\n\n" << indent << "suites:  " << term::yellow
+             << total_suites << term::reset << '\n' << indent
+             << "tests:   " << term::yellow << total_tests << term::reset
+             << '\n' << indent << "checks:  " << term::yellow
+             << total_good + total_bad << term::reset;
   if (total_bad > 0) {
-    log.info() << " (" << color(green) << total_good << color(reset) << '/'
-               << color(red) << total_bad << color(reset) << ")";
+    log.info() << " (" << term::green << total_good << term::reset << '/'
+               << term::red << total_bad << term::reset << ")";
     if (total_bad_expected > 0) {
       log.info()
-        << ' ' << color(cyan) << total_bad_expected << color(reset)
+        << ' ' << term::cyan << total_bad_expected << term::reset
         << " failures expected";
     }
   }
-  log.info() << '\n' << indent << "time:    " << color(yellow)
-             << render(runtime) << '\n' << color(reset) << indent
+  log.info() << '\n' << indent << "time:    " << term::yellow
+             << render(runtime) << '\n' << term::reset << indent
              << "success: "
-             << (total_bad == total_bad_expected ? color(green) : color(red))
-             << percent_good << "%" << color(reset) << "\n\n";
+             << (total_bad == total_bad_expected ? term::green : term::red)
+             << percent_good << "%" << term::reset << "\n\n";
   if (!failed_tests.empty()) {
     log.info() << indent << "failed tests:" << '\n';
     for (auto& name : failed_tests)
       log.info() << indent << "- " << name << '\n';
     log.info() << '\n';
   }
-  log.info() << color(cyan) << bar << color(reset) << '\n';
+  log.info() << term::cyan << bar << term::reset << '\n';
   return total_bad == total_bad_expected;
-}
-
-const char* engine::color(color_value v, color_face t) {
-  return instance().colorize_ ? caf::color(v, t) : "";
 }
 
 const char* engine::last_check_file() {
@@ -529,7 +489,7 @@ int main(int argc, char** argv) {
   // default values.
   int verbosity_console = 3;
   int verbosity_file = 3;
-  int max_runtime = 0;
+  int max_runtime = engine::max_runtime();
   std::string log_file;
   std::string suites = ".*";
   std::string not_suites;
@@ -554,7 +514,8 @@ int main(int argc, char** argv) {
      verbosity_console},
     {"file-verbosity,V", "set verbosity level of file output (1-5)",
      verbosity_file},
-    {"max-runtime,r", "set maximum runtime in seconds", max_runtime},
+    {"max-runtime,r", "set maximum runtime in seconds (0 = infinite)",
+      max_runtime},
     {"suites,s",
      "define what suites to run, either * or a comma-separated list", suites},
     {"not-suites,S", "exclude suites", not_suites},
@@ -584,20 +545,7 @@ int main(int argc, char** argv) {
               << res.helptext << std::endl;
     return 1;
   }
-# ifdef CAF_WINDOWS
-  constexpr bool colorize = false;
-# else
-  auto color_support = []() -> bool {
-    if (!isatty(0))
-      return false;
-    char ttybuf[50];
-    if (ttyname_r(0, ttybuf, sizeof(ttybuf)) != 0)
-      return false;
-    char prefix[] = "/dev/tty";
-    return strncmp(prefix, ttybuf, sizeof(prefix) - 1) == 0;
-  };
-  auto colorize = color_support();
-# endif
+  auto colorize = res.opts.count("no-colors") == 0;
   std::vector<char*> args;
   if (divider < argc) {
     // make a new args vector that contains argv[0] and all remaining args
@@ -608,8 +556,7 @@ int main(int argc, char** argv) {
   } else {
     engine::args(1, argv);
   }
-  if (res.opts.count("max-runtime") > 0)
-    engine::max_runtime(max_runtime);
+  engine::max_runtime(max_runtime);
   auto result = engine::run(colorize, log_file, verbosity_console,
                             verbosity_file, suites,
                             not_suites, tests, not_tests);

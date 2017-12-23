@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -27,10 +27,11 @@
 
 // turn off several flags for overflows / sign conversion
 #ifdef CAF_CLANG
-//#elif defined(CAF_CLANG)
 #pragma clang diagnostic ignored "-Wsign-conversion"
 #pragma clang diagnostic ignored "-Wfloat-equal"
 #pragma clang diagnostic ignored "-Wconstant-conversion"
+#elif defined(CAF_GCC)
+#pragma GCC diagnostic ignored "-Woverflow"
 #endif
 
 using namespace caf;
@@ -193,7 +194,7 @@ CAF_TEST(type_float) {
   std::tie(result, error_str) = run_config_option(init_value, boundary_check); 
   float float_inf = std::numeric_limits<float>::infinity();
   // Unit test does not compare inf values correct until now
-  bool tmp = float_inf == result; 
+  bool tmp = float_inf == result;
   CAF_CHECK_NOT_EQUAL(tmp, true);
   CAF_CHECK_EQUAL(result, init_value);
   CAF_CHECK_EQUAL(error_str.empty(), false);

@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -111,8 +111,8 @@ public:
       return;
     actor_msg_vec xs;
     xs.reserve(workers.size());
-    for (size_t i = 0; i < workers.size(); ++i)
-      xs.emplace_back(workers[i], message{});
+    for (const auto & worker : workers)
+      xs.emplace_back(worker, message{});
     ulock.unlock();
     using collector_t = split_join_collector<T, Split, Join>;
     auto hdl = sys.spawn<collector_t, lazy_init>(init_, sf_, jf_, std::move(xs));

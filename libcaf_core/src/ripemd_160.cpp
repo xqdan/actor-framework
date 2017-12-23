@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -394,8 +394,8 @@ void ripemd_160(std::array<uint8_t, 20>& storage, const std::string& data) {
   length = static_cast<dword>(data.size());
   // process message in 16-word chunks
   for (dword nbytes = length; nbytes > 63; nbytes -= 64) {
-    for (dword i = 0; i < 16; ++i) {
-      X[i] = BYTES_TO_DWORD(message);
+    for (auto& i : X) {
+      i = BYTES_TO_DWORD(message);
       message += 4;
     }
     compress(MDbuf, X);

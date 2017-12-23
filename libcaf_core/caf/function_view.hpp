@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -22,6 +22,7 @@
 
 #include <new>
 #include <functional>
+#include <utility>
 
 #include "caf/expected.hpp"
 #include "caf/typed_actor.hpp"
@@ -139,9 +140,9 @@ public:
     // nop
   }
 
-  function_view(const type& impl, duration rel_timeout = infinite)
+  function_view(type  impl, duration rel_timeout = infinite)
       : timeout(rel_timeout),
-        impl_(impl) {
+        impl_(std::move(impl)) {
     new_self(impl_);
   }
 
@@ -208,6 +209,11 @@ public:
   /// Checks whether this function view has an actor assigned to it.
   explicit operator bool() const {
     return static_cast<bool>(impl_);
+  }
+
+  /// Returns the associated actor handle.
+  type handle() const {
+    return impl_;
   }
 
   duration timeout;

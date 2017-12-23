@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -36,14 +36,7 @@ class actor_proxy : public monitorable_actor {
 public:
   explicit actor_proxy(actor_config& cfg);
 
-  ~actor_proxy();
-
-  /// Establishes a local link state that's
-  /// not synchronized back to the remote instance.
-  virtual void local_link_to(abstract_actor* other) = 0;
-
-  /// Removes a local link state.
-  virtual void local_unlink_from(abstract_actor* other) = 0;
+  ~actor_proxy() override;
 
   /// Invokes cleanup code.
   virtual void kill_proxy(execution_unit* ctx, error reason) = 0;

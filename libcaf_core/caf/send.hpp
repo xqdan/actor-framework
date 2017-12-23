@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -26,6 +26,7 @@
 #include "caf/actor_addr.hpp"
 #include "caf/message_id.hpp"
 #include "caf/typed_actor.hpp"
+#include "caf/local_actor.hpp"
 #include "caf/response_type.hpp"
 #include "caf/system_messages.hpp"
 #include "caf/is_message_sink.hpp"
@@ -67,6 +68,33 @@ void send_as(const Source& src, const Dest& dest, Ts&&... xs) {
                   nullptr, std::forward<Ts>(xs)...);
 }
 
+template <class Source, class Dest, class... Ts>
+void unsafe_send_as(Source* src, const Dest& dest, Ts&&... xs) {
+  actor_cast<abstract_actor*>(dest)->eq_impl(message_id::make(), src->ctrl(),
+                                             src->context(),
+                                             std::forward<Ts>(xs)...);
+}
+
+template <class... Ts>
+void unsafe_response(local_actor* self, strong_actor_ptr src,
+                     std::vector<strong_actor_ptr> stages, message_id mid,
+                     Ts&&... xs) {
+  strong_actor_ptr next;
+  if (stages.empty()) {
+    next = src;
+    src = self->ctrl();
+    if (mid.is_request())
+      mid = mid.response_id();
+  } else {
+    next = std::move(stages.back());
+    stages.pop_back();
+  }
+  if (next)
+    next->enqueue(make_mailbox_element(std::move(src), mid, std::move(stages),
+                                       std::forward<Ts>(xs)...),
+                  self->context());
+}
+
 /// Anonymously sends `dest` a message.
 template <message_priority P = message_priority::normal,
           class Dest = actor, class... Ts>
@@ -83,6 +111,7 @@ void anon_send(const Dest& dest, Ts&&... xs) {
 /// Anonymously sends `dest` an exit message.
 template <class Dest>
 void anon_send_exit(const Dest& dest, exit_reason reason) {
+  CAF_LOG_TRACE(CAF_ARG(dest) << CAF_ARG(reason));
   if (dest)
     dest->enqueue(nullptr, message_id::make(),
                   make_message(exit_msg{dest->address(), reason}), nullptr);

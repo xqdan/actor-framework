@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -31,7 +31,6 @@
 #include "caf/expected.hpp"
 #include "caf/optional.hpp"
 #include "caf/make_message.hpp"
-#include "caf/typed_continue_helper.hpp"
 
 #include "caf/detail/int_list.hpp"
 #include "caf/detail/apply_args.hpp"
@@ -123,6 +122,11 @@ public:
     (*this)();
   }
 
+  template <class T>
+  void operator()(stream<T>&) {
+    (*this)();
+  }
+
   // visit API - returns true if T was visited, false if T was skipped
 
   template <class T>
@@ -137,6 +141,11 @@ public:
 
   inline bool visit(const skip_t&) {
     return false;
+  }
+
+  template <class T>
+  bool visit(stream<T>&) {
+    return true;
   }
 
   inline bool visit(optional<skip_t>& x) {

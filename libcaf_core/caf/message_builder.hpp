@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -89,7 +89,7 @@ public:
 
   /// @copydoc message::extract
   inline message extract(message_handler f) const {
-    return to_message().extract(f);
+    return to_message().extract(std::move(f));
   }
 
   /// @copydoc message::extract_opts

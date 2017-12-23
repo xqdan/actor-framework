@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -46,25 +46,23 @@ public:
 } // namespace <anonymous>
 
 scoped_actor::scoped_actor(actor_system& sys, bool hide) : context_(&sys) {
+  CAF_SET_LOGGER_SYS(&sys);
   actor_config cfg{&context_};
   self_ = make_actor<impl, strong_actor_ptr>(sys.next_actor_id(), sys.node(),
                                              &sys, cfg);
   if (!hide)
-    prev_ = CAF_SET_AID(self_->id());
-  CAF_LOG_TRACE(CAF_ARG(hide));
-  if (!hide)
     ptr()->register_at_system();
+  prev_ = CAF_SET_AID(self_->id());
+  ptr()->initialize();
 }
 
 scoped_actor::~scoped_actor() {
-  CAF_LOG_TRACE("");
   if (!self_)
     return;
   auto x = ptr();
-  if (x->getf(abstract_actor::is_registered_flag))
-    CAF_SET_AID(prev_);
   if (!x->getf(abstract_actor::is_terminated_flag))
     x->cleanup(exit_reason::normal, &context_);
+  CAF_SET_AID(prev_);
 }
 
 blocking_actor* scoped_actor::ptr() const {

@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -55,8 +55,9 @@ public:
     CAF_ASSERT(this_thread_.get_id() == std::thread::id{});
     auto this_worker = this;
     this_thread_ = std::thread{[this_worker] {
-      CAF_LOG_TRACE(CAF_ARG(this_worker->id()));
+      this_worker->system().thread_started();
       this_worker->run();
+      this_worker->system().thread_terminates();
     }};
   }
 
@@ -67,7 +68,6 @@ public:
   /// source, i.e., from any other thread.
   void external_enqueue(job_ptr job) {
     CAF_ASSERT(job != nullptr);
-    CAF_LOG_TRACE(CAF_ARG(id()) << CAF_ARG(id_of(job)));
     policy_.external_enqueue(this, job);
   }
 
@@ -76,7 +76,6 @@ public:
   /// @warning Must not be called from other threads.
   void exec_later(job_ptr job) override {
     CAF_ASSERT(job != nullptr);
-    CAF_LOG_TRACE(CAF_ARG(id()) << CAF_ARG(id_of(job)));
     policy_.internal_enqueue(this, job);
   }
 
@@ -93,9 +92,9 @@ public:
   }
 
   actor_id id_of(resumable* ptr) {
-    abstract_actor* dptr = ptr ? dynamic_cast<abstract_actor*>(ptr)
+    abstract_actor* dptr = ptr != nullptr ? dynamic_cast<abstract_actor*>(ptr)
                                : nullptr;
-    return dptr ? dptr->id() : 0;
+    return dptr != nullptr ? dptr->id() : 0;
   }
 
   policy_data& data() {
@@ -109,13 +108,11 @@ public:
 private:
   void run() {
     CAF_SET_LOGGER_SYS(&system());
-    CAF_LOG_TRACE(CAF_ARG(id_));
     // scheduling loop
     for (;;) {
       auto job = policy_.dequeue(this);
       CAF_ASSERT(job != nullptr);
       CAF_ASSERT(job->subtype() != resumable::io_actor);
-      CAF_LOG_DEBUG("resume actor:" << CAF_ARG(id_of(job)));
       CAF_PUSH_AID_FROM_PTR(dynamic_cast<abstract_actor*>(job));
       policy_.before_resume(this, job);
       auto res = job->resume(this, max_throughput_);

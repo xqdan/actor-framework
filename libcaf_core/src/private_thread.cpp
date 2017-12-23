@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -35,6 +35,7 @@ private_thread::private_thread(scheduled_actor* self)
 
 void private_thread::run() {
   auto job = const_cast<scheduled_actor*>(self_);
+  CAF_SET_LOGGER_SYS(&job->system());
   CAF_PUSH_AID(job->id());
   CAF_LOG_TRACE("");
   scoped_execution_unit ctx{&job->system()};
@@ -84,11 +85,13 @@ void private_thread::shutdown() {
 }
 
 void private_thread::exec(private_thread* this_ptr) {
+  this_ptr->system_.thread_started();
   this_ptr->run();
   // make sure to not destroy the private thread object before the
   // detached actor is destroyed and this object is unreachable
   this_ptr->await_self_destroyed();
   // signalize destruction of detached thread to registry
+  this_ptr->system_.thread_terminates();
   this_ptr->system_.dec_detached_threads();
   // done
   delete this_ptr;

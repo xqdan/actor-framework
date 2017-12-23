@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -39,7 +39,7 @@ public:
     });
   }
 
-  behavior make_behavior() {
+  behavior make_behavior() override {
     return {
       [=](die_atom) {
         quit(exit_reason::user_shutdown);
@@ -62,7 +62,7 @@ public:
     });
   }
 
-  behavior make_behavior() {
+  behavior make_behavior() override {
     return {
       [=](done_atom, const error& reason) {
         CAF_CHECK_EQUAL(reason, exit_reason::user_shutdown);
@@ -76,7 +76,7 @@ public:
     };
   }
 
-  void on_exit() {
+  void on_exit() override {
     destroy(testee_);
   }
 

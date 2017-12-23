@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -29,12 +29,26 @@
 #include <type_traits>
 
 #include "caf/fwd.hpp"
+#include "caf/sec.hpp"
 #include "caf/error.hpp"
 #include "caf/extend.hpp"
+#include "caf/no_stages.hpp"
 #include "caf/local_actor.hpp"
 #include "caf/actor_marker.hpp"
+#include "caf/stream_result.hpp"
 #include "caf/response_handle.hpp"
 #include "caf/scheduled_actor.hpp"
+#include "caf/random_gatherer.hpp"
+#include "caf/stream_sink_impl.hpp"
+#include "caf/stream_stage_impl.hpp"
+#include "caf/stream_source_impl.hpp"
+#include "caf/stream_result_trait.hpp"
+#include "caf/broadcast_scatterer.hpp"
+#include "caf/terminal_stream_scatterer.hpp"
+
+#include "caf/to_string.hpp"
+
+#include "caf/policy/arg.hpp"
 
 #include "caf/mixin/sender.hpp"
 #include "caf/mixin/requester.hpp"
@@ -71,6 +85,12 @@ class scheduled_actor : public local_actor, public resumable {
 public:
   // -- member types -----------------------------------------------------------
 
+  /// A reference-counting pointer to a `stream_manager`.
+  using stream_manager_ptr = intrusive_ptr<stream_manager>;
+
+  /// A container for associating stream IDs to handlers.
+  using streams_map = std::unordered_map<stream_id, stream_manager_ptr>;
+
   /// The message ID of an outstanding response with its callback.
   using pending_response = std::pair<const message_id, behavior>;
 
@@ -78,7 +98,8 @@ public:
   using pointer = scheduled_actor*;
 
   /// Function object for handling unmatched messages.
-  using default_handler = std::function<result<message> (pointer, message_view&)>;
+  using default_handler =
+    std::function<result<message>(pointer, message_view&)>;
 
   /// Function object for handling error messages.
   using error_handler = std::function<void (pointer, error&)>;
@@ -140,7 +161,7 @@ public:
 
   explicit scheduled_actor(actor_config& cfg);
 
-  ~scheduled_actor();
+  ~scheduled_actor() override;
 
   // -- overridden functions of abstract_actor ---------------------------------
 
@@ -191,13 +212,16 @@ public:
   /// @warning This member function throws immediately in thread-based actors
   ///          that do not use the behavior stack, i.e., actors that use
   ///          blocking API calls such as {@link receive()}.
-  void quit(error reason = error{});
+  void quit(error x = error{});
 
   // -- event handlers ---------------------------------------------------------
 
   /// Sets a custom handler for unexpected messages.
   inline void set_default_handler(default_handler fun) {
-    default_handler_ = std::move(fun);
+    if (fun)
+      default_handler_ = std::move(fun);
+    else
+      default_handler_ = print_and_drop;
   }
 
   /// Sets a custom handler for unexpected messages.
@@ -216,7 +240,10 @@ public:
 
   /// Sets a custom handler for error messages.
   inline void set_error_handler(error_handler fun) {
-    error_handler_ = std::move(fun);
+    if (fun)
+      error_handler_ = std::move(fun);
+    else
+      error_handler_ = default_error_handler;
   }
 
   /// Sets a custom handler for error messages.
@@ -227,7 +254,10 @@ public:
 
   /// Sets a custom handler for down messages.
   inline void set_down_handler(down_handler fun) {
-    down_handler_ = std::move(fun);
+    if (fun)
+      down_handler_ = std::move(fun);
+    else
+      down_handler_ = default_down_handler;
   }
 
   /// Sets a custom handler for down messages.
@@ -238,7 +268,10 @@ public:
 
   /// Sets a custom handler for error messages.
   inline void set_exit_handler(exit_handler fun) {
-    exit_handler_ = std::move(fun);
+    if (fun)
+      exit_handler_ = std::move(fun);
+    else
+      exit_handler_ = default_exit_handler;
   }
 
   /// Sets a custom handler for exit messages.
@@ -250,8 +283,11 @@ public:
 # ifndef CAF_NO_EXCEPTIONS
   /// Sets a custom exception handler for this actor. If multiple handlers are
   /// defined, only the functor that was added *last* is being executed.
-  inline void set_exception_handler(exception_handler f) {
-    exception_handler_ = std::move(f);
+  inline void set_exception_handler(exception_handler fun) {
+    if (fun)
+      exception_handler_ = std::move(fun);
+    else
+      exception_handler_ = default_exception_handler;
   }
 
   /// Sets a custom exception handler for this actor. If multiple handlers are
@@ -270,6 +306,298 @@ public:
   }
 # endif // CAF_NO_EXCEPTIONS
 
+  // -- stream management ------------------------------------------------------
+
+  /// Returns a new stream ID.
+  stream_id make_stream_id() {
+    return {ctrl(), new_request_id(message_priority::normal).integer_value()};
+  }
+
+  /// Creates a new stream source and starts streaming to `dest`.
+  /// @param dest Actor handle to the stream destination.
+  /// @param xs User-defined handshake payload.
+  /// @param init Function object for initializing the state of the source.
+  /// @param getter Function object for generating messages for the stream.
+  /// @param pred Predicate returning `true` when the stream is done.
+  /// @param res_handler Function object for receiving the stream result.
+  /// @param scatterer_type Configures the policy for downstream communication.
+  /// @returns A stream object with a pointer to the generated `stream_manager`.
+  template <class Handle, class... Ts, class Init, class Getter,
+            class ClosedPredicate, class ResHandler,
+            class Scatterer = broadcast_scatterer<
+              typename stream_source_trait_t<Getter>::output>>
+  annotated_stream<typename stream_source_trait_t<Getter>::output, Ts...>
+  make_source(const Handle& dest, std::tuple<Ts...> xs, Init init,
+              Getter getter, ClosedPredicate pred, ResHandler res_handler,
+              policy::arg<Scatterer> scatterer_type = {}) {
+    CAF_IGNORE_UNUSED(scatterer_type);
+    using type = typename stream_source_trait_t<Getter>::output;
+    using state_type = typename stream_source_trait_t<Getter>::state;
+    static_assert(std::is_same<
+                    void (state_type&),
+                    typename detail::get_callable_trait<Init>::fun_sig
+                  >::value,
+                  "Expected signature `void (State&)` for init function");
+    static_assert(std::is_same<
+                    void (state_type&, downstream<type>&, size_t),
+                    typename detail::get_callable_trait<Getter>::fun_sig
+                  >::value,
+                  "Expected signature `void (State&, downstream<T>&, size_t)` "
+                  "for getter function");
+    static_assert(std::is_same<
+                    bool (const state_type&),
+                    typename detail::get_callable_trait<
+                      ClosedPredicate
+                    >::fun_sig
+                  >::value,
+                  "Expected signature `bool (const State&)` for "
+                  "closed_predicate function");
+    if (!dest) {
+      CAF_LOG_ERROR("cannot stream to an invalid actor handle");
+      return none;
+    }
+    // generate new stream ID and manager
+    auto sid = make_stream_id();
+    using impl = stream_source_impl<Getter, ClosedPredicate, Scatterer>;
+    auto ptr = make_counted<impl>(this, std::move(getter), std::move(pred));
+    auto mid = new_request_id(message_priority::normal);
+    if (!add_sink<type>(ptr, sid, ctrl(), actor_cast<strong_actor_ptr>(dest),
+                        no_stages, mid, stream_priority::normal, std::move(xs)))
+      return none;
+    init(ptr->state());
+    this->add_multiplexed_response_handler(
+      mid.response_id(),
+      stream_result_trait_t<ResHandler>::make_result_handler(res_handler));
+    streams_.emplace(sid, ptr);
+    return {std::move(sid), std::move(ptr)};
+  }
+
+  /// Creates a new stream source and starts streaming to `dest`.
+  /// @param dest Actor handle to the stream destination.
+  /// @param init Function object for initializing the state of the source.
+  /// @param getter Function object for generating messages for the stream.
+  /// @param pred Predicate returning `true` when the stream is done.
+  /// @param res_handler Function object for receiving the stream result.
+  /// @param scatterer_type Configures the policy for downstream communication.
+  /// @returns A stream object with a pointer to the generated `stream_manager`.
+  template <class Handle, class Init, class Getter, class ClosedPredicate,
+            class ResHandler,
+            class Scatterer = broadcast_scatterer<
+              typename stream_source_trait_t<Getter>::output>>
+  stream<typename stream_source_trait_t<Getter>::output>
+  make_source(const Handle& dest, Init init, Getter getter,
+              ClosedPredicate pred, ResHandler res_handler,
+              policy::arg<Scatterer> scatterer_type = {}) {
+    return make_source(dest, std::make_tuple(), std::move(init),
+                       std::move(getter), std::move(pred),
+                       std::move(res_handler), scatterer_type);
+  }
+
+  /// Creates a new stream source.
+  /// @param xs User-defined handshake payload.
+  /// @param init Function object for initializing the state of the source.
+  /// @param getter Function object for generating messages for the stream.
+  /// @param pred Predicate returning `true` when the stream is done.
+  /// @param scatterer_type Configures the policy for downstream communication.
+  /// @returns A stream object with a pointer to the generated `stream_manager`.
+  template <class Init, class... Ts, class Getter, class ClosedPredicate,
+            class Scatterer = broadcast_scatterer<
+              typename stream_source_trait_t<Getter>::output>>
+  annotated_stream<typename stream_source_trait_t<Getter>::output, Ts...>
+  make_source(std::tuple<Ts...> xs, Init init, Getter getter,
+              ClosedPredicate pred,
+              policy::arg<Scatterer> scatterer_type = {}) {
+    CAF_IGNORE_UNUSED(scatterer_type);
+    using type = typename stream_source_trait_t<Getter>::output;
+    using state_type = typename stream_source_trait_t<Getter>::state;
+    static_assert(std::is_same<
+                    void (state_type&),
+                    typename detail::get_callable_trait<Init>::fun_sig
+                  >::value,
+                  "Expected signature `void (State&)` for init function");
+    static_assert(std::is_same<
+                    void (state_type&, downstream<type>&, size_t),
+                    typename detail::get_callable_trait<Getter>::fun_sig
+                  >::value,
+                  "Expected signature `void (State&, downstream<T>&, size_t)` "
+                  "for getter function");
+    static_assert(std::is_same<
+                    bool (const state_type&),
+                    typename detail::get_callable_trait<
+                      ClosedPredicate
+                    >::fun_sig
+                  >::value,
+                  "Expected signature `bool (const State&)` for "
+                  "closed_predicate function");
+    auto sid = make_stream_id();
+    using impl = stream_source_impl<Getter, ClosedPredicate, Scatterer>;
+    auto ptr = make_counted<impl>(this, std::move(getter), std::move(pred));
+    auto next = take_current_next_stage();
+    if (!add_sink<type>(ptr, sid, current_sender(), std::move(next),
+                        take_current_forwarding_stack(), current_message_id(),
+                        stream_priority::normal, std::move(xs))) {
+      CAF_LOG_ERROR("cannot create stream source without sink");
+      auto rp = make_response_promise();
+      rp.deliver(sec::no_downstream_stages_defined);
+      return none;
+    }
+    drop_current_message_id();
+    init(ptr->state());
+    streams_.emplace(sid, ptr);
+    return {std::move(sid), std::move(ptr)};
+  }
+
+  /// Creates a new stream source.
+  /// @param init Function object for initializing the state of the source.
+  /// @param getter Function object for generating messages for the stream.
+  /// @param pred Predicate returning `true` when the stream is done.
+  /// @param scatterer_type Configures the policy for downstream communication.
+  /// @returns A stream object with a pointer to the generated `stream_manager`.
+  template <class Init, class Getter, class ClosedPredicate,
+            class Scatterer = broadcast_scatterer<
+              typename stream_source_trait_t<Getter>::output>>
+  stream<typename stream_source_trait_t<Getter>::output>
+  make_source(Init init, Getter getter, ClosedPredicate pred,
+              policy::arg<Scatterer> scatterer_type = {}) {
+    return make_source(std::make_tuple(), std::move(init), std::move(getter),
+                       std::move(pred), scatterer_type);
+  }
+
+  /// Creates a new stream stage.
+  /// @pre `current_mailbox_element()` is a `stream_msg::open` handshake
+  /// @param in The input of the stage.
+  /// @param xs User-defined handshake payload.
+  /// @param init Function object for initializing the state of the stage.
+  /// @param fun Function object for processing stream elements.
+  /// @param cleanup Function object for clearing the stage of the stage.
+  /// @param policies Sets the policies for up- and downstream communication.
+  /// @returns A stream object with a pointer to the generated `stream_manager`.
+  template <class In, class... Ts, class Init, class Fun, class Cleanup,
+            class Gatherer = random_gatherer,
+            class Scatterer =
+              broadcast_scatterer<typename stream_stage_trait_t<Fun>::output>>
+  annotated_stream<typename stream_stage_trait_t<Fun>::output, Ts...>
+  make_stage(const stream<In>& in, std::tuple<Ts...> xs, Init init, Fun fun,
+             Cleanup cleanup, policy::arg<Gatherer, Scatterer> policies = {}) {
+    CAF_IGNORE_UNUSED(policies);
+    CAF_ASSERT(current_mailbox_element() != nullptr);
+    CAF_ASSERT(current_mailbox_element()->content().match_elements<stream_msg>());
+    using output_type = typename stream_stage_trait_t<Fun>::output;
+    using state_type = typename stream_stage_trait_t<Fun>::state;
+    static_assert(std::is_same<
+                    void (state_type&),
+                    typename detail::get_callable_trait<Init>::fun_sig
+                  >::value,
+                  "Expected signature `void (State&)` for init function");
+    static_assert(std::is_same<
+                    void (state_type&, downstream<output_type>&, In),
+                    typename detail::get_callable_trait<Fun>::fun_sig
+                  >::value,
+                  "Expected signature `void (State&, downstream<Out>&, In)` "
+                  "for consume function");
+    using impl = stream_stage_impl<Fun, Cleanup, Gatherer, Scatterer>;
+    auto ptr = make_counted<impl>(this, in.id(), std::move(fun),
+                                  std::move(cleanup));
+    if (!serve_as_stage<output_type>(ptr, in, std::move(xs))) {
+      CAF_LOG_ERROR("installing sink and source to the manager failed");
+      return none;
+    }
+    init(ptr->state());
+    return {in.id(), std::move(ptr)};
+  }
+
+  /// Creates a new stream stage.
+  /// @pre `current_mailbox_element()` is a `stream_msg::open` handshake
+  /// @param in The input of the stage.
+  /// @param init Function object for initializing the state of the stage.
+  /// @param fun Function object for processing stream elements.
+  /// @param cleanup Function object for clearing the stage of the stage.
+  /// @param policies Sets the policies for up- and downstream communication.
+  /// @returns A stream object with a pointer to the generated `stream_manager`.
+  template <class In, class Init, class Fun, class Cleanup,
+            class Gatherer = random_gatherer,
+            class Scatterer =
+              broadcast_scatterer<typename stream_stage_trait_t<Fun>::output>>
+  stream<typename stream_stage_trait_t<Fun>::output>
+  make_stage(const stream<In>& in, Init init, Fun fun, Cleanup cleanup,
+             policy::arg<Gatherer, Scatterer> policies = {}) {
+    return make_stage(in, std::make_tuple(), std::move(init), std::move(fun),
+                      std::move(cleanup), policies);
+  }
+
+  /// Creates a new stream sink of type T.
+  /// @pre `current_mailbox_element()` is a `stream_msg::open` handshake
+  /// @param in The input of the sink.
+  /// @param f Callback for initializing the object after successful creation.
+  /// @param xs Parameter pack for creating the instance of T.
+  /// @returns A stream object with a pointer to the generated `stream_manager`.
+  template <class T, class In, class SuccessCallback, class... Ts>
+  stream_result<typename T::output_type>
+  make_sink_impl(const stream<In>& in, SuccessCallback f, Ts&&... xs) {
+    CAF_ASSERT(current_mailbox_element() != nullptr);
+    CAF_ASSERT(current_mailbox_element()->content().match_elements<stream_msg>());
+    auto& sm = current_mailbox_element()->content().get_as<stream_msg>(0);
+    CAF_ASSERT(holds_alternative<stream_msg::open>(sm.content));
+    auto& opn = get<stream_msg::open>(sm.content);
+    auto sid = in.id();
+    auto next = take_current_next_stage();
+    auto ptr = make_counted<T>(this, std::forward<Ts>(xs)...);
+    auto rp = make_response_promise();
+    if (!add_source(ptr, sid, std::move(opn.prev_stage),
+                    std::move(opn.original_stage), opn.priority,
+                    opn.redeployable, rp)) {
+      CAF_LOG_ERROR("cannot create stream stage without source");
+      rp.deliver(sec::cannot_add_upstream);
+      return none;
+    }
+    f(*ptr);
+    streams_.emplace(in.id(), ptr);
+    return {in.id(), std::move(ptr)};
+  }
+
+  /// Creates a new stream sink.
+  /// @pre `current_mailbox_element()` is a `stream_msg::open` handshake
+  /// @param in The input of the sink.
+  /// @param init Function object for initializing the state of the stage.
+  /// @param fun Function object for processing stream elements.
+  /// @param finalize Function object for producing the final result.
+  /// @param policies Sets the policies for up- and downstream communication.
+  /// @returns A stream object with a pointer to the generated `stream_manager`.
+  template <class In, class Init, class Fun, class Finalize,
+            class Gatherer = random_gatherer,
+            class Scatterer = terminal_stream_scatterer>
+  stream_result<typename stream_sink_trait_t<Fun, Finalize>::output>
+  make_sink(const stream<In>& in, Init init, Fun fun, Finalize finalize,
+            policy::arg<Gatherer, Scatterer> policies = {}) {
+    CAF_IGNORE_UNUSED(policies);
+    using state_type = typename stream_sink_trait_t<Fun, Finalize>::state;
+    static_assert(std::is_same<
+                    void (state_type&),
+                    typename detail::get_callable_trait<Init>::fun_sig
+                  >::value,
+                  "Expected signature `void (State&)` for init function");
+    static_assert(std::is_same<
+                    void (state_type&, In),
+                    typename detail::get_callable_trait<Fun>::fun_sig
+                  >::value,
+                  "Expected signature `void (State&, Input)` "
+                  "for consume function");
+    using impl = stream_sink_impl<Fun, Finalize, Gatherer, Scatterer>;
+    auto initializer = [&](impl& x) {
+      init(x.state());
+    };
+    return make_sink_impl<impl>(in, initializer, std::move(fun),
+                                std::move(finalize));
+  }
+
+  inline streams_map& streams() {
+    return streams_;
+  }
+
+  /// Tries to send more data on all downstream paths. Use this function to
+  /// manually trigger batches in a source after receiving more data to send.
+  void trigger_downstreams();
+
   /// @cond PRIVATE
 
   // -- timeout management -----------------------------------------------------
@@ -281,7 +609,7 @@ public:
   void reset_timeout(uint32_t timeout_id);
 
   /// Returns whether `timeout_id` is currently active.
-  bool is_active_timeout(uint32_t timeout_id) const;
+  bool is_active_timeout(uint32_t tid) const;
 
   // -- message processing -----------------------------------------------------
 
@@ -295,7 +623,7 @@ public:
   message_category categorize(mailbox_element& x);
 
   /// Tries to consume `x`.
-  invoke_message_result consume(mailbox_element& x);
+  virtual invoke_message_result consume(mailbox_element& x);
 
   /// Tries to consume `x`.
   void consume(mailbox_element_ptr x);
@@ -322,7 +650,8 @@ public:
   inline bool has_behavior() const {
     return !bhvr_stack_.empty()
            || !awaited_responses_.empty()
-           || !multiplexed_responses_.empty();
+           || !multiplexed_responses_.empty()
+           || !streams_.empty();
   }
 
   inline behavior& current_behavior() {
@@ -338,12 +667,179 @@ public:
   /// @returns `true` if cleanup code was called, `false` otherwise.
   bool finalize();
 
+  inline detail::behavior_stack& bhvr_stack() {
+    return bhvr_stack_;
+  }
+
+  template <class T, class... Ts>
+  static message make_handshake(const stream_id& sid, std::tuple<Ts...>& xs) {
+    stream<T> token{sid};
+    auto ys = std::tuple_cat(std::forward_as_tuple(token), std::move(xs));
+    return make_message_from_tuple(std::move(ys));
+  }
+
+  /// Tries to add a new sink to the stream manager `mgr`.
+  /// @param mgr Pointer to the responsible stream manager.
+  /// @param sid The ID used for communicating to the sink.
+  /// @param origin Handle to the actor that initiated the stream and that will
+  ///               receive the stream result (if any).
+  /// @param sink_ptr Handle to the new sink.
+  /// @param fwd_stack Forwarding stack for the remaining stream participants.
+  /// @param prio Priority of the traffic to the sink.
+  /// @param handshake_mid Message ID for the stream handshake. If valid, this
+  ///                      ID will be used to send the result to the `origin`.
+  /// @param data Additional payload for the stream handshake.
+  /// @returns `true` if the sink could be added to the manager, `false`
+  ///          otherwise.
+  template <class T, class... Ts>
+  bool add_sink(const stream_manager_ptr& mgr, const stream_id& sid,
+                strong_actor_ptr origin, strong_actor_ptr sink_ptr,
+                mailbox_element::forwarding_stack fwd_stack,
+                message_id handshake_mid, stream_priority prio,
+                std::tuple<Ts...> data) {
+    CAF_ASSERT(mgr != nullptr);
+    if (!sink_ptr || !sid.valid())
+      return false;
+    return mgr->add_sink(sid, std::move(origin), std::move(sink_ptr),
+                         std::move(fwd_stack), handshake_mid,
+                         make_handshake<T>(sid, data), prio, false);
+  }
+
+  /// Tries to add a new source to the stream manager `mgr`.
+  /// @param mgr Pointer to the responsible stream manager.
+  /// @param sid The ID used for communicating to the sink.
+  /// @param source_ptr Handle to the new source.
+  /// @param prio Priority of the traffic from the source.
+  /// @param redeployable Configures whether source can re-appear after aborts.
+  /// @param result_cb Callback for the listener of the final stream result.
+  ///                  Ignored when returning `nullptr`, because the previous
+  ///                  stage is responsible for it until this manager
+  ///                  acknowledges the handshake.
+  /// @returns `true` if the sink could be added to the manager, `false`
+  ///          otherwise.
+  bool add_source(const stream_manager_ptr& mgr, const stream_id& sid,
+                  strong_actor_ptr source_ptr, strong_actor_ptr original_stage,
+                  stream_priority prio, bool redeployable,
+                  response_promise result_cb);
+
+  /// Adds a new source to the stream manager `mgr` if `current_message()` is a
+  /// `stream_msg::open` handshake.
+  /// @param mgr Pointer to the responsible stream manager.
+  /// @param sid The ID used for communicating to the sink.
+  /// @param result_cb Callback for the listener of the final stream result.
+  ///                  Ignored when returning `nullptr`, because the previous
+  ///                  stage is responsible for it until this manager
+  ///                  acknowledges the handshake.
+  /// @returns `true` if the sink could be added to the manager, `false`
+  ///          otherwise.
+  bool add_source(const stream_manager_ptr& mgr, const stream_id& sid,
+                  response_promise result_cb);
+
+  /// Adds a pair of source and sink to `mgr` that allows it to serve as a
+  /// stage for the stream `in` with the output type `Out`. Returns `false` if
+  /// `current_mailbox_element()` is not a `stream_msg::open` handshake or if
+  /// adding the sink or source fails, `true` otherwise.
+  /// @param mgr Pointer to the responsible stream manager.
+  /// @param in The input of the stage.
+  /// @param xs User-defined handshake payload.
+  /// @returns `true` if the manager added sink and source, `false` otherwise.
+  template <class Out, class In, class... Ts>
+  bool serve_as_stage(const stream_manager_ptr& mgr, const stream<In>& in,
+                      std::tuple<Ts...> xs) {
+    CAF_ASSERT(current_mailbox_element() != nullptr);
+    if (!current_mailbox_element()->content().match_elements<stream_msg>())
+      return false;
+    auto& sm = current_mailbox_element()->content().get_as<stream_msg>(0);
+    if (!holds_alternative<stream_msg::open>(sm.content))
+      return false;
+    auto& opn = get<stream_msg::open>(sm.content);
+    auto sid = in.id();
+    auto next = take_current_next_stage();
+    if (!add_sink<Out>(mgr, sid, current_sender(), std::move(next),
+                       current_forwarding_stack(), current_message_id(),
+                       opn.priority, std::move(xs))) {
+      CAF_LOG_ERROR("cannot create stream stage without sink");
+      mgr->abort(sec::no_downstream_stages_defined);
+      auto rp = make_response_promise();
+      rp.deliver(sec::no_downstream_stages_defined);
+      return false;
+    }
+    // Pass `none` instead of a response promise to the source, because the
+    // outbound_path is responsible for the "promise" until we receive an ACK
+    // from the next stage.
+    if (!add_source(mgr, sid, std::move(opn.prev_stage),
+                    std::move(opn.original_stage), opn.priority,
+                    opn.redeployable, none)) {
+      CAF_LOG_ERROR("cannot create stream stage without source");
+      auto rp = make_response_promise();
+      rp.deliver(sec::cannot_add_upstream);
+      return false;
+    }
+    streams_.emplace(sid, mgr);
+    return true;
+  }
+
+
+  template <class T, class... Ts>
+  void fwd_stream_handshake(const stream_id& sid, std::tuple<Ts...>& xs,
+                            bool ignore_mid = false) {
+    auto mptr = current_mailbox_element();
+    auto& stages = mptr->stages;
+    CAF_ASSERT(!stages.empty());
+    CAF_ASSERT(stages.back() != nullptr);
+    auto next = std::move(stages.back());
+    stages.pop_back();
+    stream<T> token{sid};
+    auto ys = std::tuple_cat(std::forward_as_tuple(token), std::move(xs));;
+    next->enqueue(make_mailbox_element(
+                    mptr->sender, ignore_mid ? message_id::make() : mptr->mid,
+                    std::move(stages),
+                    make<stream_msg::open>(
+                      sid, address(), make_message_from_tuple(std::move(ys)),
+                      ctrl(), next, stream_priority::normal, false)),
+                  context());
+    if (!ignore_mid)
+      mptr->mid.mark_as_answered();
+  }
+
   /// @endcond
 
 protected:
   /// @cond PRIVATE
 
-  // -- member variables -------------------------------------------------------
+  /// Utility function that swaps `f` into a temporary before calling it
+  /// and restoring `f` only if it has not been replaced by the user.
+  template <class F, class... Ts>
+  auto call_handler(F& f, Ts&&... xs)
+  -> typename std::enable_if<
+       !std::is_same<decltype(f(std::forward<Ts>(xs)...)), void>::value,
+       decltype(f(std::forward<Ts>(xs)...))
+     >::type {
+    using std::swap;
+    F g;
+    swap(f, g);
+    auto res = g(std::forward<Ts>(xs)...);
+    if (!f)
+      swap(g, f);
+    return res;
+  }
+
+  template <class F, class... Ts>
+  auto call_handler(F& f, Ts&&... xs)
+  -> typename std::enable_if<
+       std::is_same<decltype(f(std::forward<Ts>(xs)...)), void>::value
+     >::type {
+    using std::swap;
+    F g;
+    swap(f, g);
+    g(std::forward<Ts>(xs)...);
+    if (!f)
+      swap(g, f);
+  }
+
+  bool handle_stream_msg(mailbox_element& x, behavior* active_behavior);
+
+  // -- Member Variables -------------------------------------------------------
 
   /// Stores user-defined callbacks for message handling.
   detail::behavior_stack bhvr_stack_;
@@ -371,6 +867,10 @@ protected:
 
   /// Pointer to a private thread object associated with a detached actor.
   detail::private_thread* private_thread_;
+
+  // TODO: this type is quite heavy in terms of memory, maybe use vector?
+  /// Holds state for all streams running through this actor.
+  streams_map streams_;
 
 # ifndef CAF_NO_EXCEPTIONS
   /// Customization point for setting a default exception callback.

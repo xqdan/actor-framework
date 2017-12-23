@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -41,11 +41,11 @@ struct parse_ini_t {
 
   /// Parse the given input stream as INI formatted data and
   /// calls the consumer with every key-value pair.
-  /// @param raw_data Input stream of INI formatted text.
+  /// @param input Input stream of INI formatted text.
+  /// @param consumer_fun Callback consuming generated key-value pairs.
   /// @param errors Output stream for parser errors.
-  /// @param consumer Callback consuming generated key-value pairs.
-  void operator()(std::istream& raw_data,
-                  config_consumer consumer,
+  void operator()(std::istream& input,
+                  const config_consumer& consumer_fun,
                   opt_err errors = none) const;
 
 };

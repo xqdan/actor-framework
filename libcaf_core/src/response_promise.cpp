@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -27,15 +27,16 @@
 
 namespace caf {
 
-response_promise::response_promise()
-    : self_(nullptr) {
+response_promise::response_promise() : self_(nullptr) {
   // nop
 }
 
-response_promise::response_promise(execution_unit* ctx, strong_actor_ptr self,
-                                   mailbox_element& src)
-    : ctx_(ctx),
-      self_(std::move(self)),
+response_promise::response_promise(none_t) : response_promise() {
+  // nop
+}
+
+response_promise::response_promise(strong_actor_ptr self, mailbox_element& src)
+    : self_(std::move(self)),
       id_(src.mid) {
   // form an invalid request promise when initialized from a
   // response ID, since CAF always drops messages in this case
@@ -54,18 +55,26 @@ bool response_promise::async() const {
   return id_.is_async();
 }
 
+
+execution_unit* response_promise::context() {
+  return self_ == nullptr
+         ? nullptr
+         : static_cast<local_actor*>(actor_cast<abstract_actor*>(self_))
+           ->context();
+}
+
 response_promise response_promise::deliver_impl(message msg) {
   if (!stages_.empty()) {
     auto next = std::move(stages_.back());
     stages_.pop_back();
     next->enqueue(make_mailbox_element(std::move(source_), id_,
                                        std::move(stages_), std::move(msg)),
-                  ctx_);
+                  context());
     return *this;
   }
   if (source_) {
     source_->enqueue(std::move(self_), id_.response_id(),
-                     std::move(msg), ctx_);
+                     std::move(msg), context());
     source_.reset();
     return *this;
   }

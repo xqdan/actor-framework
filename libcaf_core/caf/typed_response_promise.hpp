@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -35,9 +35,8 @@ public:
   /// Constructs an invalid response promise.
   typed_response_promise() = default;
 
-  inline typed_response_promise(execution_unit* ctx, strong_actor_ptr self,
-                                mailbox_element& src)
-      : promise_(ctx, std::move(self), src) {
+  inline typed_response_promise(strong_actor_ptr self, mailbox_element& src)
+      : promise_(std::move(self), src) {
     // nop
   }
 

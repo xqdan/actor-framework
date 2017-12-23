@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -54,11 +54,7 @@ local_actor::~local_actor() {
 }
 
 void local_actor::on_destroy() {
-  // disable logging from this point on, because on_destroy can
-  // be called after the logger is already destroyed;
-  // alternatively, we would have to use a reference-counted,
-  // heap-allocated logger
-  CAF_SET_LOGGER_SYS(nullptr);
+  CAF_PUSH_AID_FROM_PTR(this);
   if (!getf(is_cleaned_up_flag)) {
     on_exit();
     cleanup(exit_reason::unreachable, nullptr);
@@ -75,7 +71,7 @@ void local_actor::request_response_timeout(const duration& d, message_id mid) {
 }
 
 void local_actor::monitor(abstract_actor* ptr) {
-  if (ptr)
+  if (ptr != nullptr)
     ptr->attach(default_attachable::make_monitor(ptr->address(), address()));
 }
 
@@ -114,7 +110,7 @@ mailbox_element_ptr local_actor::next_message() {
     auto hp_pos = i;
     // read whole mailbox at once
     auto tmp = mailbox().try_pop();
-    while (tmp) {
+    while (tmp != nullptr) {
       cache.insert(tmp->is_high_priority() ? hp_pos : e, tmp);
       // adjust high priority insert point on first low prio element insert
       if (hp_pos == e && !tmp->is_high_priority())
@@ -190,6 +186,7 @@ bool local_actor::cleanup(error&& fail_state, execution_unit* host) {
   // tell registry we're done
   unregister_from_system();
   monitorable_actor::cleanup(std::move(fail_state), host);
+  CAF_LOG_TERMINATE_EVENT(this, fail_state);
   return true;
 }
 

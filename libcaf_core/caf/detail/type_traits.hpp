@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -147,7 +147,7 @@ struct is_duration : std::false_type {};
 template <class Period, class Rep>
 struct is_duration<std::chrono::duration<Period, Rep>> : std::true_type {};
 
-/// Checks wheter `T` is considered a builtin type.
+/// Checks whether `T` is considered a builtin type.
 ///
 /// Builtin types are: (1) all arithmetic types (including time types), (2)
 /// string types from the STL, and (3) built-in types such as `actor_ptr`.
@@ -161,8 +161,8 @@ struct is_builtin {
                                              node_id>::value;
 };
 
-/// Chekcs wheter `T` is primitive, i.e., either an arithmetic
-///    type or convertible to one of STL's string types.
+/// Checks whether `T` is primitive, i.e., either an arithmetic type or
+/// convertible to one of STL's string types.
 template <class T>
 struct is_primitive {
   static constexpr bool value = std::is_arithmetic<T>::value
@@ -172,7 +172,7 @@ struct is_primitive {
                                 || std::is_convertible<T, atom_value>::value;
 };
 
-/// Chekcs wheter `T1` is comparable with `T2`.
+/// Checks whether `T1` is comparable with `T2`.
 template <class T1, typename T2>
 class is_comparable {
   // SFINAE: If you pass a "bool*" as third argument, then
@@ -202,13 +202,13 @@ class is_forward_iterator {
   template <class C>
   static bool sfinae(C& x, C& y,
                      // check for operator*
-                     decay_t<decltype(*x)>* = 0,
+                     decay_t<decltype(*x)>* = nullptr,
                      // check for operator++ returning an iterator
-                     decay_t<decltype(x = ++y)>* = 0,
+                     decay_t<decltype(x = ++y)>* = nullptr,
                      // check for operator==
-                     decay_t<decltype(x == y)>* = 0,
+                     decay_t<decltype(x == y)>* = nullptr,
                      // check for operator!=
-                     decay_t<decltype(x != y)>* = 0);
+                     decay_t<decltype(x != y)>* = nullptr);
 
   static void sfinae(...);
 
@@ -226,9 +226,9 @@ class is_iterable {
   template <class C>
   static bool sfinae(C* cc,
                      // check if 'C::begin()' returns a forward iterator
-                     enable_if_tt<is_forward_iterator<decltype(cc->begin())>>* = 0,
+                     enable_if_tt<is_forward_iterator<decltype(cc->begin())>>* = nullptr,
                      // check if begin() and end() both exist and are comparable
-                     decltype(cc->begin() != cc->end())* = 0);
+                     decltype(cc->begin() != cc->end())* = nullptr);
 
   // SFNINAE default
   static void sfinae(void*);
@@ -271,7 +271,7 @@ template <class T,
                         || std::is_function<T>::value>
 struct has_serialize {
   template <class U>
-  static auto test_serialize(caf::serializer* sink, U* x, const unsigned int y = 0)
+  static auto test_serialize(caf::serializer* sink, U* x, unsigned int y = 0)
   -> decltype(serialize(*sink, *x, y));
 
   template <class U>
@@ -282,7 +282,7 @@ struct has_serialize {
   static auto test_serialize(...) -> std::false_type;
 
   template <class U>
-  static auto test_deserialize(caf::deserializer* source, U* x, const unsigned int y = 0)
+  static auto test_deserialize(caf::deserializer* source, U* x, unsigned int y = 0)
   -> decltype(serialize(*source, *x, y));
 
   template <class U>
@@ -606,6 +606,13 @@ template <class T>
 constexpr bool can_insert_elements() {
   return can_insert_elements_impl<T>(static_cast<T*>(nullptr));
 }
+
+/// Checks whether `Tpl` is a specialization of `T` or not.
+template <template <class...> class Tpl, class T>
+struct is_specialization : std::false_type { };
+
+template <template <class...> class T, class... Ts>
+struct is_specialization<T, T<Ts...>> : std::true_type { };
 
 } // namespace detail
 } // namespace caf

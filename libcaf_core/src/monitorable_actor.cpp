@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -39,7 +39,7 @@ const char* monitorable_actor::name() const {
 
 void monitorable_actor::attach(attachable_ptr ptr) {
   CAF_LOG_TRACE("");
-  CAF_ASSERT(ptr);
+  CAF_ASSERT(ptr != nullptr);
   error fail_state;
   auto attached = exclusive_critical_section([&] {
     if (getf(is_terminated_flag)) {
@@ -57,7 +57,20 @@ void monitorable_actor::attach(attachable_ptr ptr) {
 size_t monitorable_actor::detach(const attachable::token& what) {
   CAF_LOG_TRACE("");
   std::unique_lock<std::mutex> guard{mtx_};
-  return detach_impl(what, attachables_head_);
+  return detach_impl(what);
+}
+
+void monitorable_actor::unlink_from(const actor_addr& x) {
+  auto ptr = actor_cast<strong_actor_ptr>(x);
+  if (ptr != nullptr) {
+    if (ptr->get() != this)
+      remove_link(ptr->get());
+  } else {
+    default_attachable::observe_token tk{x, default_attachable::link};
+    exclusive_critical_section([&] {
+      detach_impl(tk, true);
+    });
+  }
 }
 
 bool monitorable_actor::cleanup(error&& reason, execution_unit* host) {
@@ -116,47 +129,37 @@ monitorable_actor::monitorable_actor(actor_config& cfg) : abstract_actor(cfg) {
   // nop
 }
 
-bool monitorable_actor::link_impl(linking_operation op, abstract_actor* other) {
-  CAF_LOG_TRACE(CAF_ARG(op) << CAF_ARG(other));
-  switch (op) {
-    case establish_link_op:
-      return establish_link_impl(other);
-    case establish_backlink_op:
-      return establish_backlink_impl(other);
-    case remove_link_op:
-      return remove_link_impl(other);
-    default:
-      CAF_ASSERT(op == remove_backlink_op);
-      return remove_backlink_impl(other);
-  }
-}
-
-bool monitorable_actor::establish_link_impl(abstract_actor* x) {
+void monitorable_actor::add_link(abstract_actor* x) {
+  // Add backlink on `x` first and add the local attachable only on success.
   CAF_LOG_TRACE(CAF_ARG(x));
-  CAF_ASSERT(x);
+  CAF_ASSERT(x != nullptr);
   error fail_state;
   bool send_exit_immediately = false;
   auto tmp = default_attachable::make_link(address(), x->address());
-  auto success = exclusive_critical_section([&]() -> bool {
+  joined_exclusive_critical_section(this, x, [&] {
     if (getf(is_terminated_flag)) {
       fail_state = fail_state_;
       send_exit_immediately = true;
-      return false;
-    }
-    // add link if not already linked to other (checked by establish_backlink)
-    if (x->establish_backlink(this)) {
+    } else if (x->add_backlink(this)) {
       attach_impl(tmp);
-      return true;
     }
-    return false;
   });
   if (send_exit_immediately)
     x->enqueue(nullptr, invalid_message_id,
                  make_message(exit_msg{address(), fail_state}), nullptr);
-  return success;
 }
 
-bool monitorable_actor::establish_backlink_impl(abstract_actor* x) {
+void monitorable_actor::remove_link(abstract_actor* x) {
+  CAF_LOG_TRACE(CAF_ARG(x));
+  default_attachable::observe_token tk{x->address(), default_attachable::link};
+  joined_exclusive_critical_section(this, x, [&] {
+    x->remove_backlink(this);
+    detach_impl(tk, true);
+  });
+}
+
+bool monitorable_actor::add_backlink(abstract_actor* x) {
+  // Called in an exclusive critical section.
   CAF_LOG_TRACE(CAF_ARG(x));
   CAF_ASSERT(x);
   error fail_state;
@@ -164,62 +167,50 @@ bool monitorable_actor::establish_backlink_impl(abstract_actor* x) {
   default_attachable::observe_token tk{x->address(),
                                        default_attachable::link};
   auto tmp = default_attachable::make_link(address(), x->address());
-  auto success = exclusive_critical_section([&]() -> bool {
-    if (getf(is_terminated_flag)) {
-      fail_state = fail_state_;
-      send_exit_immediately = true;
-      return false;
-    }
-    if (detach_impl(tk, attachables_head_, true, true) == 0) {
-      attach_impl(tmp);
-      return true;
-    }
-    return false;
-  });
+  auto success = false;
+  if (getf(is_terminated_flag)) {
+    fail_state = fail_state_;
+    send_exit_immediately = true;
+  } else if (detach_impl(tk, true, true) == 0) {
+    attach_impl(tmp);
+    success = true;
+  }
   if (send_exit_immediately)
     x->enqueue(nullptr, invalid_message_id,
-                 make_message(exit_msg{address(), fail_state}), nullptr);
+               make_message(exit_msg{address(), fail_state}), nullptr);
   return success;
 }
 
-bool monitorable_actor::remove_link_impl(abstract_actor* x) {
+bool monitorable_actor::remove_backlink(abstract_actor* x) {
+  // Called in an exclusive critical section.
   CAF_LOG_TRACE(CAF_ARG(x));
   default_attachable::observe_token tk{x->address(), default_attachable::link};
-  auto success = exclusive_critical_section([&]() -> bool {
-    return detach_impl(tk, attachables_head_, true) > 0;
-  });
-  if (success)
-    x->remove_backlink(this);
-  return success;
-}
-
-bool monitorable_actor::remove_backlink_impl(abstract_actor* x) {
-  CAF_LOG_TRACE(CAF_ARG(x));
-  default_attachable::observe_token tk{x->address(), default_attachable::link};
-  auto success = exclusive_critical_section([&]() -> bool {
-    return detach_impl(tk, attachables_head_, true) > 0;
-  });
-  return success;
+  return detach_impl(tk, true) > 0;
 }
 
 size_t monitorable_actor::detach_impl(const attachable::token& what,
-                                      attachable_ptr& ptr, bool stop_on_hit,
-                                      bool dry_run) {
-  CAF_LOG_TRACE("");
-  if (!ptr) {
-    CAF_LOG_DEBUG("invalid ptr");
-    return 0;
-  }
-  if (ptr->matches(what)) {
-    if (!dry_run) {
-      CAF_LOG_DEBUG("removed element");
-      attachable_ptr next;
-      next.swap(ptr->next);
-      ptr.swap(next);
+                                      bool stop_on_hit, bool dry_run) {
+  CAF_LOG_TRACE(CAF_ARG(stop_on_hit) << CAF_ARG(dry_run));
+  size_t count = 0;
+  auto i = &attachables_head_;
+  while (*i != nullptr) {
+    if ((*i)->matches(what)) {
+      ++count;
+      if (!dry_run) {
+        CAF_LOG_DEBUG("removed element");
+        attachable_ptr next;
+        next.swap((*i)->next);
+        (*i).swap(next);
+      } else {
+        i = &((*i)->next);
+      }
+      if (stop_on_hit)
+        return count;
+    } else {
+      i = &((*i)->next);
     }
-    return stop_on_hit ? 1 : 1 + detach_impl(what, ptr, stop_on_hit, dry_run);
   }
-  return detach_impl(what, ptr->next, stop_on_hit, dry_run);
+  return count;
 }
 
 bool monitorable_actor::handle_system_message(mailbox_element& x,
@@ -232,7 +223,8 @@ bool monitorable_actor::handle_system_message(mailbox_element& x,
     if (em.reason)
       cleanup(std::move(em.reason), ctx);
     return true;
-  } else if (msg.size() > 1 && msg.match_element<sys_atom>(0)) {
+  }
+  if (msg.size() > 1 && msg.match_element<sys_atom>(0)) {
     if (!x.sender)
       return true;
     error err;

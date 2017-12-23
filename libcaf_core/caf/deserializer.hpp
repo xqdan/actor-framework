@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -40,7 +40,7 @@ namespace caf {
 /// Technology-independent deserialization interface.
 class deserializer : public data_processor<deserializer> {
 public:
-  ~deserializer();
+  ~deserializer() override;
 
   using super = data_processor<deserializer>;
 
@@ -51,9 +51,9 @@ public:
   using is_saving = std::false_type;
   using is_loading = std::true_type;
 
-  explicit deserializer(actor_system& sys);
+  explicit deserializer(actor_system& x);
 
-  explicit deserializer(execution_unit* ctx = nullptr);
+  explicit deserializer(execution_unit* x = nullptr);
 };
 
 #ifndef CAF_NO_EXCEPTIONS

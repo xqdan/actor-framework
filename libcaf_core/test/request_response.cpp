@@ -5,7 +5,7 @@
  *                     | |___ / ___ \|  _|      Framework                     *
  *                      \____/_/   \_|_|                                      *
  *                                                                            *
- * Copyright (C) 2011 - 2016                                                  *
+ * Copyright (C) 2011 - 2017                                                  *
  * Dominik Charousset <dominik.charousset (at) haw-hamburg.de>                *
  *                                                                            *
  * Distributed under the terms and conditions of the BSD 3-Clause License or  *
@@ -17,10 +17,12 @@
  * http://www.boost.org/LICENSE_1_0.txt.                                      *
  ******************************************************************************/
 
+#include <utility>
+
 #include "caf/config.hpp"
 
 #define CAF_SUITE request_response
-#include "caf/test/unit_test.hpp"
+#include "caf/test/dsl.hpp"
 
 #include "caf/all.hpp"
 
@@ -81,9 +83,9 @@ struct float_or_int : event_based_actor {
 
 class popular_actor : public event_based_actor { // popular actors have a buddy
 public:
-  explicit popular_actor(actor_config& cfg, const actor& buddy_arg)
+  explicit popular_actor(actor_config& cfg, actor  buddy_arg)
       : event_based_actor(cfg),
-        buddy_(buddy_arg) {
+        buddy_(std::move(buddy_arg)) {
     // don't pollute unit test output with (provoked) warnings
     set_default_handler(drop);
   }
@@ -246,7 +248,7 @@ struct fixture {
 
 } // namespace <anonymous>
 
-CAF_TEST_FIXTURE_SCOPE(atom_tests, fixture)
+CAF_TEST_FIXTURE_SCOPE(request_response_tests1, fixture)
 
 CAF_TEST(test_void_res) {
   using testee_a = typed_actor<replies_to<int, int>::with<void>>;
@@ -474,6 +476,26 @@ CAF_TEST(skip_responses) {
     },
     [&](const error& err) {
       CAF_FAIL(system.render(err));
+    }
+  );
+}
+
+CAF_TEST_FIXTURE_SCOPE_END()
+
+CAF_TEST_FIXTURE_SCOPE(request_response_tests2, test_coordinator_fixture<>)
+
+CAF_TEST(request_response_in_test_coordinator) {
+  auto mirror = sys.spawn<sync_mirror>();
+  sched.run();
+  sched.inline_next_enqueue();
+  // this block would deadlock without inlining the next enqueue
+  self->request(mirror, infinite, 23).receive(
+    [](int x) {
+      CAF_CHECK_EQUAL(x, 23);
+
+    },
+    [&](const error& err) {
+      CAF_FAIL("unexpected error: " << sys.render(err));
     }
   );
 }
